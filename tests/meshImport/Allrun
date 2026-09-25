@@ -17,6 +17,9 @@
 #         patch; frontAndBack has 4 N^2 faces and type empty; no other
 #         patches
 #       - the bounding box is [0, 1] x [0, 1] in x and y
+#       - z is 0 or 1, front and back points pair up with identical (x, y),
+#         and every x and y is exactly i/N
+#       - every patch face lies on its patch plane
 #       - all triangle diagonals have the same direction (see below)
 #     Exits with a non-zero status if any check fails.
 #
@@ -101,6 +104,54 @@ bb=$(grep "Overall domain bounding box" log.checkMesh \
     | sed -e 's/.*box *//' -e 's/[()]//g')
 bbXY=$(echo "$bb" | awk '{print $1, $2, $4, $5}')
 check "bounding box xMin yMin xMax yMax" "$bbXY" "0 0 1 1"
+
+# Point coordinates.
+# - z takes only the values 0 and 1 (one layer of thickness 1)
+# - front (z = 0) and back (z = 1) points pair up: every (x, y) occurs
+#   exactly once with z = 0 and once with z = 1, giving (N + 1)^2 pairs
+# - with N = 8, i/N is exact in binary, so every x and y must equal i/N
+#   exactly (the points are written with writePrecision 17)
+pointStats=$(awk -v N="$N" '
+    FNR == 1 { state = 0; n = 0 }
+    state == 0 && /^[0-9]+$/ { size = $1; state = 1; next }
+    state == 1 && /^\($/ { state = 2; next }
+    state == 2 && n < size {
+        line = $0
+        gsub(/[()]/, "", line)
+        split(line, c, " ")
+        zValues[c[3] + 0] = 1
+        key = (c[1] + 0) " " (c[2] + 0)
+        if (c[3] + 0 == 0) { nFront[key]++ }
+        else if (c[3] + 0 == 1) { nBack[key]++ }
+        keys[key] = 1
+        for (k = 1; k <= 2; k++)
+        {
+            i = int(c[k]*N + 0.5)
+            if (c[k] + 0 != i/N) { nOffGrid++ }
+        }
+        n++
+    }
+    END {
+        zList = ""
+        nZ = 0
+        for (z in zValues) { nZ++ }
+        if (nZ == 2 && (0 in zValues) && (1 in zValues)) { zList = "0 1" }
+        else { zList = "other (" nZ " values)" }
+        nKeys = 0
+        nUnpaired = 0
+        for (key in keys)
+        {
+            nKeys++
+            if (nFront[key] != 1 || nBack[key] != 1) { nUnpaired++ }
+        }
+        printf "%s|%d %d|%d\n", zList, nKeys, nUnpaired, nOffGrid
+    }
+' constant/polyMesh/points)
+check "distinct z values" "$(echo "$pointStats" | cut -d'|' -f1)" "0 1"
+check "front/back (x, y) pairs and unpaired" \
+    "$(echo "$pointStats" | cut -d'|' -f2)" "$(((N + 1)*(N + 1))) 0"
+check "x, y coordinates not exactly i/N" \
+    "$(echo "$pointStats" | cut -d'|' -f3)" "0"
 
 # Patch locations: every point of every face of a patch must lie on the
 # patch plane, e.g. y = 0 for tStart
