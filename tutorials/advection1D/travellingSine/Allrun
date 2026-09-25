@@ -14,7 +14,7 @@
 #     spaceTime4Foam and compute the errors with spaceTimeErrors
 #     (postProcessing/spaceTimeErrors/errors.dat).
 #
-#     Usage: ./Allrun [N]   (default N = 8)
+#     Usage: ./Allrun [N] [left|right]   (default N = 8, left diagonals)
 #
 #------------------------------------------------------------------------------
 cd "${0%/*}" || exit  # Run from this directory

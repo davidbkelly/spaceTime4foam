@@ -9,8 +9,16 @@
 // Description
 //     Space-time unit square: mesh x is physical x in [0, 1] and mesh y is
 //     time t in [0, 1]. The square is split into N x N squares, each cut into
-//     two right triangles by a diagonal in ONE direction (transfinite "Right"
-//     arrangement: every diagonal joins (x_i, t_j) and (x_i+1, t_j+1)).
+//     two right triangles by a diagonal in ONE direction, chosen by the
+//     string diagonal:
+//       left  (default): transfinite "Left" arrangement, every diagonal
+//                        joins (x_i, t_j+1) and (x_i+1, t_j), direction
+//                        (1, -1);
+//       right:           transfinite "Right" arrangement, every diagonal
+//                        joins (x_i, t_j) and (x_i+1, t_j+1), direction
+//                        (1, 1). With a = 1 these diagonals are parallel to
+//                        A = (a, 1), so A . n = 0 on every diagonal face
+//                        (characteristic-aligned case, CLAUDE.md section 6).
 //     The triangles are extruded one layer in z, so every cell is a prism.
 //
 //     The z thickness is 1 (nondimensional), so a cell volume equals its
@@ -24,8 +32,9 @@
 //     Patches are selected by bounding box, so they do not depend on the
 //     order of the surfaces returned by Extrude.
 //
-//     Usage (N defaults to 8):
-//         gmsh -3 -setnumber N 16 -format msh22 -o mesh.msh spaceTimeSquare.geo
+//     Usage (N defaults to 8, diagonal to left):
+//         gmsh -3 -setnumber N 16 -setstring diagonal right \
+//             -format msh22 -o mesh.msh spaceTimeSquare.geo
 //
 //-----------------------------------------------------------------------------
 
@@ -34,6 +43,11 @@ SetFactory("OpenCASCADE");
 // Number of squares in x and in t
 If (!Exists(N))
     N = 8;
+EndIf
+
+// Diagonal direction: "left" or "right"
+If (!Exists(diagonal))
+    diagonal = "left";
 EndIf
 
 // Extrusion thickness in z
@@ -59,8 +73,15 @@ Plane Surface(1) = {1};
 // N + 1 nodes on each side gives N x N squares
 Transfinite Curve{1, 2, 3, 4} = N + 1;
 
-// "Right" puts all diagonals in the same direction
-Transfinite Surface{1} = {1, 2, 3, 4} Right;
+// "Left" and "Right" put all diagonals in the same direction
+If (StrCmp(diagonal, "left") == 0)
+    Transfinite Surface{1} = {1, 2, 3, 4} Left;
+ElseIf (StrCmp(diagonal, "right") == 0)
+    Transfinite Surface{1} = {1, 2, 3, 4} Right;
+Else
+    Error("diagonal must be left or right, not %s", diagonal);
+    Abort;
+EndIf
 
 // Extrude one layer. Recombine turns the extruded triangles into prisms and
 // the extruded lines into quads; the triangles themselves are kept.

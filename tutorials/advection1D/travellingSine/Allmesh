@@ -10,8 +10,11 @@
 # Description
 #     Create the N x N structured right-triangle space-time mesh with gmsh,
 #     import it with gmshToFoam, set the patch types and run checkMesh.
+#     The diagonal direction is left (direction (1, -1), the default) or
+#     right (direction (1, 1), aligned with A = (1, 1) when a = 1); see
+#     gmsh/spaceTimeSquare.geo.
 #
-#     Usage: ./Allmesh [N]   (default N = 8)
+#     Usage: ./Allmesh [N] [left|right]   (default N = 8, left)
 #
 #------------------------------------------------------------------------------
 cd "${0%/*}" || exit  # Run from this directory
@@ -23,7 +26,15 @@ cd "${0%/*}" || exit  # Run from this directory
 N="${1:-8}"
 if ! [[ "$N" =~ ^[1-9][0-9]*$ ]]
 then
-    echo "Usage: ${0##*/} [N], where N is a positive integer"
+    echo "Usage: ${0##*/} [N] [left|right], where N is a positive integer"
+    exit 1
+fi
+
+# Diagonal direction
+diagonal="${2:-left}"
+if [ "$diagonal" != "left" ] && [ "$diagonal" != "right" ]
+then
+    echo "Usage: ${0##*/} [N] [left|right]: unknown diagonal '$diagonal'"
     exit 1
 fi
 
@@ -34,11 +45,12 @@ then
     exit 1
 fi
 
-echo "Creating the space-time mesh with N = $N"
+echo "Creating the space-time mesh with N = $N and $diagonal diagonals"
 
 # Mesh with gmsh. gmshToFoam in OpenFOAM v2412 reads the MSH 2.2 format.
 echo "Running gmsh on $PWD"
-if ! gmsh -3 -setnumber N "$N" -format msh22 -o spaceTimeSquare.msh \
+if ! gmsh -3 -setnumber N "$N" -setstring diagonal "$diagonal" \
+    -format msh22 -o spaceTimeSquare.msh \
     gmsh/spaceTimeSquare.geo > log.gmsh 2>&1
 then
     echo "gmsh failed: see log.gmsh"
