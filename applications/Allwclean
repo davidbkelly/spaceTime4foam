@@ -1,0 +1,28 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     applications/Allwclean
+#
+# Description
+#     Clean the spaceTime4foam solvers, utilities and test applications.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+echo
+echo "Cleaning applications"
+echo
+
+for appType in solvers utilities test
+do
+    if [ -f "$appType/Allwclean" ]
+    then
+        (cd "$appType" && ./Allwclean)
+    fi
+done
+
+#------------------------------------------------------------------------------

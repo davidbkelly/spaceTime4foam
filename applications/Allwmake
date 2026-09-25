@@ -1,0 +1,35 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     applications/Allwmake
+#
+# Description
+#     Build the spaceTime4foam solvers, utilities and test applications.
+#     Directories that are not present are skipped.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Parse arguments for application compilation
+if [ -f "$WM_PROJECT_DIR"/wmake/scripts/AllwmakeParseArguments ]
+then
+    . "$WM_PROJECT_DIR"/wmake/scripts/AllwmakeParseArguments
+fi
+
+for appType in solvers utilities test
+do
+    if [ -f "$appType/Allwmake" ]
+    then
+        (cd "$appType" && ./Allwmake $*)
+    elif [ -d "$appType" ]
+    then
+        echo "Missing $appType/Allwmake"
+        exit 1
+    fi
+done
+
+#------------------------------------------------------------------------------

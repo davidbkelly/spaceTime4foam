@@ -1,0 +1,68 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     src/Allwmake
+#
+# Description
+#     Build the spaceTime4foam libraries. Libraries that are not present yet
+#     are skipped. For each library, Make/files is linked to the fork-specific
+#     build list, Make/files.openfoam or Make/files.foamextend, as done in
+#     solids4foam.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Parse arguments for library compilation
+if [ -f "$WM_PROJECT_DIR"/wmake/scripts/AllwmakeParseArguments ]
+then
+    . "$WM_PROJECT_DIR"/wmake/scripts/AllwmakeParseArguments
+fi
+
+# linkMakeFiles <libDir>
+# Link <libDir>/Make/files to the build list for the sourced fork
+function linkMakeFiles()
+{
+    if [ "$WM_PROJECT" = "foam" ]
+    then
+        filesName="files.foamextend"
+    else
+        filesName="files.openfoam"
+    fi
+
+    if [[ ! -f "$1/Make/$filesName" ]]
+    then
+        echo "Cannot find $1/Make/$filesName"
+        exit 1
+    fi
+
+    if [[ ! -e "$1/Make/files" ]]
+    then
+        echo "Linking $1/Make/$filesName to $1/Make/files"
+        (cd "$1/Make" && ln -s "$filesName" files)
+    elif [[ ! -L "$1/Make/files" ]]
+    then
+        echo "$1/Make/files is a regular file, not a link: please remove it"
+        exit 1
+    elif [ "$(readlink "$1/Make/files")" != "$filesName" ]
+    then
+        echo "Updating $1/Make/files link to $1/Make/$filesName"
+        (cd "$1/Make" && ln -sf "$filesName" files)
+    fi
+}
+
+for lib in spaceTime4FoamModels
+do
+    if [ -d "$lib/Make" ]
+    then
+        linkMakeFiles "$lib"
+        wmake ${targetType:-libso} "$lib"
+    else
+        echo "Skipping $lib: not present yet"
+    fi
+done
+
+#------------------------------------------------------------------------------

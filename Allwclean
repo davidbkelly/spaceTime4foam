@@ -1,0 +1,40 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     Allwclean
+#
+# Description
+#     Clean the spaceTime4foam libraries, applications, tutorials and tests.
+#     Adapted from the solids4foam Allwclean script.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Check if OpenFOAM/FOAM has been sourced
+if [[ -z "${WM_PROJECT}" ]]
+then
+    echo "Please source the OpenFOAM/FOAM bashrc first!"
+    exit 1
+fi
+
+# Clean libraries
+(cd src && ./Allwclean)
+
+# Clean applications
+(cd applications && ./Allwclean)
+
+# Clean tutorial and test cases
+for caseDir in $(find tutorials tests -name Allclean -type f 2>/dev/null)
+do
+    (cd "${caseDir%/*}" && ./Allclean)
+done
+
+# Clear all build and test logs
+echo; echo "Removing all log.Allwmake and log.Alltest files"; echo
+find . \( -name log.Allwmake -o -name log.Alltest \) -type f -exec rm -f {} \;
+
+#------------------------------------------------------------------------------

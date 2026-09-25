@@ -1,0 +1,71 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     Allwmake
+#
+# Description
+#     Build the spaceTime4foam libraries (src) and applications.
+#     Adapted from the solids4foam Allwmake script.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Stop at first error
+set -e
+
+# Check if OpenFOAM/FOAM has been sourced
+if [[ -z "${WM_PROJECT}" ]]
+then
+    echo "Please source the OpenFOAM/FOAM bashrc first!"
+    exit 1
+fi
+
+# Parse arguments for library compilation
+if [ -f "$WM_PROJECT_DIR"/wmake/scripts/AllwmakeParseArguments ]
+then
+    . "$WM_PROJECT_DIR"/wmake/scripts/AllwmakeParseArguments
+fi
+
+# Report the detected fork and version (after parsing, so it is printed once)
+# Only OpenFOAM.com v2412 has been tested
+tested_ver=("v2412")
+echo "Detected fork and version: $WM_PROJECT $WM_PROJECT_VERSION"
+if [ "$WM_PROJECT" = "foam" ]
+then
+    echo "WARNING: foam-extend build lists are provided but untested!"
+elif ! [[ " ${tested_ver[*]} " == *" $WM_PROJECT_VERSION "* ]]
+then
+    echo "WARNING: untested OpenFOAM version sourced!"
+    echo "    Tested versions: ${tested_ver[*]}"
+fi
+
+# Compile libraries
+(cd src && ./Allwmake $* 2>&1 | tee log.Allwmake)
+
+# Compile applications
+(cd applications && ./Allwmake $* 2>&1 | tee log.Allwmake)
+
+# Check if the build succeeded
+echo "Checking if the build was a success:"
+N_ERRORS_1=$(find . -name log.Allwmake -print0 | xargs -0 grep " Error " | wc -l)
+N_ERRORS_2=$(find . -name log.Allwmake -print0 | xargs -0 grep " Stop." | wc -l)
+if [[ $N_ERRORS_1 -gt 0 ]] || [[ $N_ERRORS_2 -gt 0 ]]
+then
+    echo "** BUILD ERROR **"
+    echo "There were build errors in the following logs:"
+    find . -name log.Allwmake -print0 | xargs -0 grep -l " Error " || true
+    find . -name log.Allwmake -print0 | xargs -0 grep -l " Stop." || true
+    echo; echo "Please examine these logs for additional details"; echo
+    exit 1
+else
+    echo "There were no build errors"; echo
+    echo "To run the verification tests:"
+    echo "    > ./Alltest"
+fi
+echo
+
+#------------------------------------------------------------------------------

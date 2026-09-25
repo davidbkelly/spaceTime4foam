@@ -1,0 +1,33 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     src/Allwclean
+#
+# Description
+#     Clean the spaceTime4foam libraries.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+echo
+echo "Cleaning src"
+echo
+
+for lib in spaceTime4FoamModels
+do
+    if [ -d "$lib/Make" ]
+    then
+        wclean lib "$lib"
+        # Make/files is a link created by src/Allwmake
+        if [[ -L "$lib/Make/files" ]]
+        then
+            rm -f "$lib/Make/files"
+        fi
+    fi
+done
+
+#------------------------------------------------------------------------------
