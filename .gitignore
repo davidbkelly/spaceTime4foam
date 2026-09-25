@@ -46,6 +46,8 @@ tutorials/**/[1-9]*/
 tutorials/**/0.[0-9]*/
 tests/**/[1-9]*/
 tests/**/0.[0-9]*/
+# - scratch run directories created by the test scripts
+tests/*/run/
 # - other run-generated output
 processor*/
 postProcessing/

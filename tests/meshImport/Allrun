@@ -1,0 +1,206 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/meshImport/Allrun
+#
+# Description
+#     Mesh-import test. Copies the travellingSine tutorial mesh set-up (the
+#     gmsh .geo file, Allmesh and system/) into run/, meshes it with N = 8
+#     and checks the imported OpenFOAM mesh:
+#       - checkMesh reports "Mesh OK."
+#       - 2 N^2 cells, all prisms, and 2 (N + 1)^2 points
+#       - patches tStart, tEnd, xLeft and xRight have N faces each and type
+#         patch; frontAndBack has 4 N^2 faces and type empty; no other
+#         patches
+#       - the bounding box is [0, 1] x [0, 1] in x and y
+#       - all triangle diagonals have the same direction (see below)
+#     Exits with a non-zero status if any check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+N=8
+tutorialDir=../../tutorials/advection1D/travellingSine
+
+nFailed=0
+
+# check <description> <actual> <expected>
+function check()
+{
+    if [ "$2" = "$3" ]
+    then
+        echo "    PASS: $1 ($2)"
+    else
+        echo "    FAIL: $1 (got '$2', expected '$3')"
+        nFailed=$((nFailed + 1))
+    fi
+}
+
+# Copy the tutorial mesh set-up, so that the .geo file is not duplicated
+rm -rf run
+mkdir run
+cp -r "$tutorialDir"/gmsh "$tutorialDir"/system "$tutorialDir"/Allmesh run/
+
+# Create the mesh
+if ! run/Allmesh "$N"
+then
+    echo "FAIL: Allmesh did not complete"
+    exit 1
+fi
+
+cd run || exit 1
+boundary=constant/polyMesh/boundary
+
+echo
+echo "Checking the imported mesh (N = $N)"
+
+# checkMesh
+if grep -q "^Mesh OK." log.checkMesh
+then
+    check "checkMesh reports Mesh OK" "yes" "yes"
+else
+    check "checkMesh reports Mesh OK" "no" "yes"
+fi
+
+# Cell and point counts
+nCells=$(awk '/^ *cells:/ {print $2; exit}' log.checkMesh)
+nPrisms=$(awk '/^ *prisms:/ {print $2; exit}' log.checkMesh)
+nPoints=$(awk '/^ *points:/ {print $2; exit}' log.checkMesh)
+check "number of cells, 2 N^2" "$nCells" "$((2*N*N))"
+check "number of prisms, 2 N^2" "$nPrisms" "$((2*N*N))"
+check "number of points, 2 (N + 1)^2" "$nPoints" "$((2*(N + 1)*(N + 1)))"
+
+# Patch names, sizes and types
+patches=$(foamDictionary "$boundary" -entry entry0 -keywords 2>/dev/null \
+    | sort | tr '\n' ' ')
+check "patch names" "$patches" "frontAndBack tEnd tStart xLeft xRight "
+
+for patch in tStart tEnd xLeft xRight
+do
+    nFaces=$(foamDictionary "$boundary" \
+        -entry "entry0/$patch/nFaces" -value 2>/dev/null)
+    patchType=$(foamDictionary "$boundary" \
+        -entry "entry0/$patch/type" -value 2>/dev/null)
+    check "$patch faces, N" "$nFaces" "$N"
+    check "$patch type" "$patchType" "patch"
+done
+
+nFaces=$(foamDictionary "$boundary" \
+    -entry entry0/frontAndBack/nFaces -value 2>/dev/null)
+patchType=$(foamDictionary "$boundary" \
+    -entry entry0/frontAndBack/type -value 2>/dev/null)
+check "frontAndBack faces, 4 N^2" "$nFaces" "$((4*N*N))"
+check "frontAndBack type" "$patchType" "empty"
+
+# Bounding box, e.g. "Overall domain bounding box (0 0 0) (1 1 1)"
+bb=$(grep "Overall domain bounding box" log.checkMesh \
+    | sed -e 's/.*box *//' -e 's/[()]//g')
+bbXY=$(echo "$bb" | awk '{print $1, $2, $4, $5}')
+check "bounding box xMin yMin xMax yMax" "$bbXY" "0 0 1 1"
+
+# Patch locations: every point of every face of a patch must lie on the
+# patch plane, e.g. y = 0 for tStart
+# patchOffPlane <patch> <component: 1 = x, 2 = y> <value>
+# Prints the number of patch face points that are off the plane
+function patchOffPlane()
+{
+    local start size
+    start=$(foamDictionary "$boundary" \
+        -entry "entry0/$1/startFace" -value 2>/dev/null)
+    size=$(foamDictionary "$boundary" \
+        -entry "entry0/$1/nFaces" -value 2>/dev/null)
+    awk -v start="${start:-0}" -v size="${size:-0}" -v cmpt="$2" -v val="$3" '
+        FNR == 1 { state = 0; n = 0 }
+        state == 0 && /^[0-9]+$/ { listSize = $1; state = 1; next }
+        state == 1 && /^\($/ { state = 2; next }
+        state == 2 && n < listSize {
+            line = $0
+            if (FILENAME ~ /points$/)
+            {
+                gsub(/[()]/, "", line)
+                split(line, c, " ")
+                coord[n] = c[cmpt]
+            }
+            else if (n >= start && n < start + size)
+            {
+                sub(/^[0-9]+\(/, "", line)
+                sub(/\)$/, "", line)
+                nP = split(line, p, " ")
+                for (i = 1; i <= nP; i++)
+                {
+                    d = coord[p[i]] - val
+                    if (d > 1e-12 || d < -1e-12) { nOff++ }
+                }
+            }
+            n++
+        }
+        END { printf "%d\n", nOff }
+    ' constant/polyMesh/points constant/polyMesh/faces
+}
+
+check "tStart points off y = 0" "$(patchOffPlane tStart 2 0)" "0"
+check "tEnd points off y = 1" "$(patchOffPlane tEnd 2 1)" "0"
+check "xLeft points off x = 0" "$(patchOffPlane xLeft 1 0)" "0"
+check "xRight points off x = 1" "$(patchOffPlane xRight 1 1)" "0"
+
+# Diagonal direction.
+# Each internal face is a quad extruded from one triangle edge. Its two
+# points at z = 0 give the edge vector (dx, dy). Axis-aligned edges have
+# dx = 0 or dy = 0. With a single diagonal direction every diagonal edge
+# has dx*dy > 0 (lower-left to upper-right), and there is exactly one
+# diagonal per square: N^2 diagonals with dx*dy > 0 and none with
+# dx*dy < 0.
+nInternalFaces=$(awk '/^ *internal faces:/ {print $3; exit}' log.checkMesh)
+diagonals=$(awk -v nInternal="$nInternalFaces" '
+    # Read the list size, skip "(", then read the list entries
+    FNR == 1 { state = 0; n = 0 }
+    state == 0 && /^[0-9]+$/ { size = $1; state = 1; next }
+    state == 1 && /^\($/ { state = 2; next }
+    state == 2 && n < size {
+        line = $0
+        if (FILENAME ~ /points$/)
+        {
+            gsub(/[()]/, "", line)
+            split(line, c, " ")
+            x[n] = c[1]; y[n] = c[2]; z[n] = c[3]
+        }
+        else if (n < nInternal)
+        {
+            sub(/^[0-9]+\(/, "", line)
+            sub(/\)$/, "", line)
+            nP = split(line, p, " ")
+            nLow = 0
+            for (i = 1; i <= nP; i++)
+            {
+                if (z[p[i]] + 0 < 0.5)
+                {
+                    nLow++
+                    low[nLow] = p[i]
+                }
+            }
+            dx = x[low[2]] - x[low[1]]
+            dy = y[low[2]] - y[low[1]]
+            tol = 1e-9
+            if (dx*dy > tol) { nPlus++ }
+            else if (dx*dy < -tol) { nMinus++ }
+        }
+        n++
+    }
+    END { printf "%d %d\n", nPlus, nMinus }
+' constant/polyMesh/points constant/polyMesh/faces)
+check "diagonals with dx*dy > 0 and < 0" "$diagonals" "$((N*N)) 0"
+
+echo
+if [[ $nFailed -gt 0 ]]
+then
+    echo "meshImport: $nFailed check(s) FAILED"
+    exit 1
+else
+    echo "meshImport: all checks passed"
+fi
+
+#------------------------------------------------------------------------------
