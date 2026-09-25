@@ -36,7 +36,7 @@ tested_ver=("v2412")
 echo "Detected fork and version: $WM_PROJECT $WM_PROJECT_VERSION"
 if [ "$WM_PROJECT" = "foam" ]
 then
-    echo "WARNING: foam-extend build lists are provided but untested!"
+    echo "WARNING: foam-extend support is untested!"
 elif ! [[ " ${tested_ver[*]} " == *" $WM_PROJECT_VERSION "* ]]
 then
     echo "WARNING: untested OpenFOAM version sourced!"
