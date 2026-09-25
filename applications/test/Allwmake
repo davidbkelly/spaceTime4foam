@@ -1,0 +1,46 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     applications/test/Allwmake
+#
+# Description
+#     Build every application in this directory that has a Make directory.
+#     An application with its own Allwmake script is built with that script.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Parse arguments for application compilation
+if [ -f "$WM_PROJECT_DIR"/wmake/scripts/AllwmakeParseArguments ]
+then
+    . "$WM_PROJECT_DIR"/wmake/scripts/AllwmakeParseArguments
+fi
+
+nApps=0
+for app in */
+do
+    app="${app%/}"
+    if [ -f "$app/Allwmake" ]
+    then
+        (cd "$app" && ./Allwmake "$@")
+        nApps=$((nApps + 1))
+    elif [ -d "$app/Make" ]
+    then
+        # targetType is set by AllwmakeParseArguments; an empty value must
+        # not be passed to wmake as an empty argument
+        # shellcheck disable=SC2154
+        wmake ${targetType:+"$targetType"} "$app"
+        nApps=$((nApps + 1))
+    fi
+done
+
+if [[ $nApps -eq 0 ]]
+then
+    echo "No test applications to build yet"
+fi
+
+#------------------------------------------------------------------------------

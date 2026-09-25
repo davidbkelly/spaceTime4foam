@@ -1,0 +1,39 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/analyticalSolution/Allrun
+#
+# Description
+#     Unit test of the travellingSine analytical solution: runs the
+#     Test-analyticalSolution application (built by ./Allwmake), which checks
+#     value, gradient and source against central differences. Exits with a
+#     non-zero status if any check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+if ! command -v Test-analyticalSolution > /dev/null 2>&1
+then
+    echo "Test-analyticalSolution not found: run ./Allwmake first"
+    exit 1
+fi
+
+Test-analyticalSolution 2>&1 | tee log.Test-analyticalSolution
+status="${PIPESTATUS[0]}"
+
+if [[ "$status" -ne 0 ]]
+then
+    echo "analyticalSolution: FAILED (exit status $status)"
+    exit 1
+fi
+
+echo "analyticalSolution: all checks passed"
+
+#------------------------------------------------------------------------------
