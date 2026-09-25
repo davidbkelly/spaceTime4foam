@@ -297,6 +297,9 @@ Rules for the guide:
 - If a result contradicts theory, report it honestly and investigate.
 - Mathematics may use plain-text formulas or LaTeX in `$$` blocks.
 - The file must pass `markdownlint`.
+- Explain the mesh z thickness of 1: cell volumes equal triangle areas,
+  so the CCFV (cell area) and VCFV (dual area V_j) error weights are
+  directly comparable.
 
 ## 9) Coding style: follow solids4foam
 

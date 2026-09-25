@@ -41,7 +41,11 @@ must not change it.
    unexplained discrepancies.
 5. **Style:** solids4foam conventions from `CLAUDE.md` section 9, including
    licence headers, `TypeName`/`addToRunTimeSelectionTable`, both
-   `Make/files*` lists, and `markdownlint` on all Markdown.
+   `Make/files*` lists, `markdownlint` on all Markdown (files listed in
+   `.markdownlintignore` are excluded), and `shellcheck` on every shell
+   script (`All*` and any other scripts). Report the actual shellcheck
+   output; if shellcheck is unavailable, say so rather than reporting a
+   pass.
 
 ## Report format
 
