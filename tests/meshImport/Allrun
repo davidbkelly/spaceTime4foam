@@ -120,7 +120,9 @@ pointStats=$(awk -v N="$N" '
         gsub(/[()]/, "", line)
         split(line, c, " ")
         zValues[c[3] + 0] = 1
-        key = (c[1] + 0) " " (c[2] + 0)
+        # Exact key: all 17 significant digits, so that any shift of a
+        # front or back point breaks the pairing
+        key = sprintf("%.17g %.17g", c[1], c[2])
         if (c[3] + 0 == 0) { nFront[key]++ }
         else if (c[3] + 0 == 1) { nBack[key]++ }
         keys[key] = 1
