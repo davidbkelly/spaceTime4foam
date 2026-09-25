@@ -14,11 +14,21 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-// Placeholder solution controls: sufficient for checkMesh.
-// The space-time solver settings are added with the solver in a later stage.
+// One linear solve per space-time iteration. The matrix of div(phiST,u) is
+// nonsymmetric. The solver tolerance is well below convergenceTolerance in
+// constant/spaceTimeProperties, so that convergence is limited by the
+// deferred correction and not by the linear solver.
 
 solvers
 {
+    u
+    {
+        solver          PBiCGStab;
+        preconditioner  DILU;
+        tolerance       1e-14;
+        relTol          0;
+        maxIter         1000;
+    }
 }
 
 // ************************************************************************* //

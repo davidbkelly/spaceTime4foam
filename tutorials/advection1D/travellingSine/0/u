@@ -9,47 +9,43 @@ FoamFile
 {
     version     2.0;
     format      ascii;
-    class       dictionary;
-    object      fvSchemes;
+    class       volScalarField;
+    object      u;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-// Space-time CCFV schemes. The problem is steady in space-time.
-// CC-2 (default here):  div(phiST,u) Gauss linearUpwind grad(u);
-//                       grad(u) Gauss linear
-// CC-2-LS:              as CC-2 with grad(u) leastSquares
-// CC-1:                 div(phiST,u) Gauss upwind
+dimensions      [0 0 0 0 0 0 0];
 
-ddtSchemes
-{
-    default         steadyState;
-}
+internalField   uniform 0;
 
-gradSchemes
+boundaryField
 {
-    default         Gauss linear;
-    grad(u)         Gauss linear;
-}
+    // Inflow (A . n < 0): analytical data. tStart holds the initial data.
+    tStart
+    {
+        type            spaceTimeAnalyticalFixedValue;
+    }
 
-divSchemes
-{
-    default         none;
-    div(phiST,u)    Gauss linearUpwind grad(u);
-}
+    xLeft
+    {
+        type            spaceTimeAnalyticalFixedValue;
+    }
 
-laplacianSchemes
-{
-    default         none;
-}
+    // Outflow (A . n > 0): no data
+    tEnd
+    {
+        type            zeroGradient;
+    }
 
-interpolationSchemes
-{
-    default         linear;
-}
+    xRight
+    {
+        type            zeroGradient;
+    }
 
-snGradSchemes
-{
-    default         corrected;
+    frontAndBack
+    {
+        type            empty;
+    }
 }
 
 // ************************************************************************* //

@@ -8,15 +8,24 @@
 #     Allrun
 #
 # Description
-#     STUB: to be completed in stage S5 (refinement sweep for all four schemes
-#     on the structured and perturbed meshes). For now it only creates the
-#     mesh.
+#     STUB: the full refinement sweep (all four schemes on the structured and
+#     perturbed meshes) is added in stage S5. For now it runs the case as
+#     set up (CCFV, CC-2) end to end on one mesh: create the mesh, solve with
+#     spaceTime4Foam and compute the errors with spaceTimeErrors
+#     (postProcessing/spaceTimeErrors/errors.dat).
 #
 #     Usage: ./Allrun [N]   (default N = 8)
 #
 #------------------------------------------------------------------------------
 cd "${0%/*}" || exit  # Run from this directory
 
+# Source tutorial run functions
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
 ./Allmesh "$@" || exit 1
+
+runApplication "$(getApplication)" || exit 1
+
+runApplication spaceTimeErrors || exit 1
 
 #------------------------------------------------------------------------------

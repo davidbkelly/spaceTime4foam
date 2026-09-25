@@ -14,10 +14,16 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-// Minimal controlDict: sufficient for gmshToFoam and checkMesh.
-// The solver settings are added with the solver in a later stage.
+// The space-time problem is steady: time counts iterations (deltaT 1), and
+// endTime is the maximum number of iterations. spaceTime4Foam writes the
+// fields when it converges, or at endTime (and then exits with status 1).
 
-application     none;
+// Load the spaceTimeAnalyticalFixedValue boundary condition in utilities
+// such as foamToVTK. Without it they fall back to a generic patch field,
+// which needs a value entry (0/u has none).
+libs            (spaceTime4FoamModels);
+
+application     spaceTime4Foam;
 
 startFrom       startTime;
 
@@ -25,18 +31,20 @@ startTime       0;
 
 stopAt          endTime;
 
-endTime         1;
+endTime         1000;
 
 deltaT          1;
 
+// No intermediate writes
 writeControl    timeStep;
 
-writeInterval   1;
+writeInterval   100000;
 
 purgeWrite      0;
 
 writeFormat     ascii;
 
+// Full precision: the points (gmshToFoam) and the solution
 writePrecision  17;
 
 writeCompression off;
@@ -45,6 +53,6 @@ timeFormat      general;
 
 timePrecision   6;
 
-runTimeModifiable true;
+runTimeModifiable false;
 
 // ************************************************************************* //

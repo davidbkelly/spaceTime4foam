@@ -10,46 +10,24 @@ FoamFile
     version     2.0;
     format      ascii;
     class       dictionary;
-    object      fvSchemes;
+    object      spaceTimeProperties;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-// Space-time CCFV schemes. The problem is steady in space-time.
-// CC-2 (default here):  div(phiST,u) Gauss linearUpwind grad(u);
-//                       grad(u) Gauss linear
-// CC-2-LS:              as CC-2 with grad(u) leastSquares
-// CC-1:                 div(phiST,u) Gauss upwind
+// Space-time discretisation: cellCentred (vertexCentred in a later stage)
+spaceTimeModel       cellCentred;
 
-ddtSchemes
-{
-    default         steadyState;
-}
+// Advection speed: space-time velocity A = (a, 1, 0), mesh x = x, mesh y = t
+a                    1;
 
-gradSchemes
-{
-    default         Gauss linear;
-    grad(u)         Gauss linear;
-}
+// Converged when the initial residual of u falls below this value
+convergenceTolerance 1e-10;
 
-divSchemes
+// Exact solution, used for the inflow data and the error norms
+analyticalSolution
 {
-    default         none;
-    div(phiST,u)    Gauss linearUpwind grad(u);
-}
-
-laplacianSchemes
-{
-    default         none;
-}
-
-interpolationSchemes
-{
-    default         linear;
-}
-
-snGradSchemes
-{
-    default         corrected;
+    type             travellingSine;    // u = sin(2 pi k (x - a t))
+    k                1;
 }
 
 // ************************************************************************* //
