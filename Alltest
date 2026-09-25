@@ -1,0 +1,175 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     Alltest
+#
+# Description
+#     Run the verification tests: every tests/<name>/Allrun script, each from
+#     a clean state (its Allclean is called first). The output of each test
+#     is written to tests/<name>/log.Alltest. A PASS/FAIL summary is printed
+#     and the exit status is non-zero if any test fails. Nothing is built:
+#     run ./Allwmake first.
+#     Adapted from the solids4foam tutorials/Alltest script.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+#
+# FUNCTION DEFINITIONS
+#
+
+function usage()
+{
+    exec 1>&2
+    while [ "$#" -ge 1 ]; do echo "$1"; shift; done
+    cat<<USAGE
+
+usage: ${0##*/} [OPTION] [test1 test2 ...]
+
+options:
+  -help         Print the usage
+
+Runs every tests/<name>/Allrun, or only the named tests, and prints a
+PASS/FAIL summary. The output of each test is in tests/<name>/log.Alltest.
+
+USAGE
+    exit 1
+}
+
+# Report error and exit
+function die()
+{
+    exec 1>&2
+    echo
+    echo "Error encountered:"
+    while [ "$#" -ge 1 ]; do echo "    $1"; shift; done
+    echo
+    echo "See '${0##*/} -help' for usage"
+    echo
+    exit 1
+}
+
+
+#
+# PRELIMINARIES
+#
+
+# Parse options
+testNames=()
+while [ "$#" -gt 0 ]
+do
+    case "$1" in
+    -h | -help)
+        usage
+        ;;
+    -*)
+        die "Unknown option: '$1'"
+        ;;
+    *)
+        testNames+=("$1")
+        ;;
+    esac
+    shift
+done
+
+# Check if OpenFOAM/FOAM has been sourced
+if [[ -z "${WM_PROJECT}" ]]
+then
+    die "Please source the OpenFOAM/FOAM bashrc first!"
+fi
+
+# Default: all tests with an Allrun script
+if [[ ${#testNames[@]} -eq 0 ]]
+then
+    for allrun in tests/*/Allrun
+    do
+        if [ -f "$allrun" ]
+        then
+            testName="${allrun%/Allrun}"
+            testNames+=("${testName#tests/}")
+        fi
+    done
+fi
+
+if [[ ${#testNames[@]} -eq 0 ]]
+then
+    die "No tests found in tests/"
+fi
+
+
+#
+# MAIN
+#
+
+echo "Running spaceTime4foam tests with $WM_PROJECT $WM_PROJECT_VERSION"
+echo
+
+nPassed=0
+nFailed=0
+failedTests=()
+summary=""
+
+for testName in "${testNames[@]}"
+do
+    testDir="tests/$testName"
+    if [ ! -f "$testDir/Allrun" ]
+    then
+        die "Cannot find $testDir/Allrun"
+    fi
+
+    echo "Running test $testName"
+
+    # Start from a clean state
+    if [ -f "$testDir/Allclean" ]
+    then
+        (cd "$testDir" && ./Allclean > /dev/null 2>&1)
+    fi
+
+    startTime=$(date +%s)
+    (cd "$testDir" && ./Allrun) > "$testDir/log.Alltest" 2>&1
+    status=$?
+    endTime=$(date +%s)
+    wallTime=$((endTime - startTime))
+
+    if [[ $status -eq 0 ]]
+    then
+        result="PASS"
+        nPassed=$((nPassed + 1))
+    else
+        result="FAIL"
+        nFailed=$((nFailed + 1))
+        failedTests+=("$testName")
+    fi
+
+    line=$(printf "    %-4s  %-30s  %4d s" "$result" "$testName" "$wallTime")
+    echo "$line"
+    summary="$summary$line"$'\n'
+done
+
+echo
+echo "Summary"
+printf "%s" "$summary"
+echo
+echo "    Passed: $nPassed"
+echo "    Failed: $nFailed"
+echo
+
+if [[ $nFailed -gt 0 ]]
+then
+    echo "The following tests failed (see tests/<name>/log.Alltest):"
+    for testName in "${failedTests[@]}"
+    do
+        echo "    $testName"
+    done
+    echo
+    exit 1
+else
+    echo "All tests passed"
+    echo
+fi
+
+#------------------------------------------------------------------------------
