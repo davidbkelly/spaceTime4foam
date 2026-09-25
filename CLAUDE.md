@@ -56,8 +56,9 @@ Check real headers in `$FOAM_SRC` rather than guessing API signatures.
   `edgeMesh`, which already exists in OpenFOAM)
 - Utilities: `perturbSpaceTimeMesh` (random interior node perturbation) and
   `spaceTimeErrors` (error norms against the analytical solution)
-- Boundary condition for CCFV: `spaceTimeAnalyticalFixedValue`, which
-  evaluates the selected `analyticalSolution` on a patch
+- Boundary conditions for CCFV: `spaceTimeAnalyticalFixedValue`, which
+  evaluates the selected `analyticalSolution` on a patch, and
+  `spaceTimeLinearExtrapolation` (outflow variant, section 7)
 
 Suggested layout, following solids4foam:
 
@@ -124,6 +125,9 @@ Boundary treatment (primary runs): data only on inflow boundaries.
   `Gauss linear`. Theoretical order 2. This is the primary CC-2.
 - **CC-2-LS:** as CC-2, but with `grad(u)` from `leastSquares`. Extra
   variant, run on both mesh families.
+- **CC-2-EX** and **CC-2-LS-EX:** as CC-2 and CC-2-LS, but with the
+  `spaceTimeLinearExtrapolation` outflow condition (section 7) on `tEnd`
+  and `xRight` instead of `zeroGradient`. Added before S5, not in S2.
 - **VC-1:** VCFV, upwind flux without reconstruction. Theoretical order 1.
 - **VC-2:** VCFV, upwind flux with linear reconstruction
   `uL = uj + 0.5 grad(u)_j . (xk - xj)`. Theoretical order 2.
@@ -133,6 +137,14 @@ Boundary treatment (primary runs): data only on inflow boundaries.
 - Structured right triangles from Gmsh (transfinite, one diagonal
   direction), N x N squares, N = 8, 16, 32, 64, 128 (256 if affordable),
   extruded one layer and imported with `gmshToFoam`.
+- Benchmark families use **`Left` diagonals** (from upper-left to
+  lower-right, direction (1, -1)). Reason: with `Right` diagonals
+  (direction (1, 1)) and a = 1, every diagonal is parallel to A, so
+  `A . n = 0` on every diagonal face and face values are copied exactly
+  along characteristics (confirmed in the S2 audit). That set-up
+  unfairly favours CCFV.
+- The `Right` family is kept only as a small aligned case in S5, labelled
+  as a characteristic-alignment illustration, never as a main result.
 - The same meshes perturbed by `perturbSpaceTimeMesh`: interior nodes moved
   randomly by at most 0.2 h in x and t, boundary nodes not moved (as in
   Tufillaro et al.), front/back node pairs moved identically, fixed random
@@ -193,8 +205,8 @@ Write all results as plain-text `.dat` files and produce convergence plots
 
 - `./Allwmake` builds cleanly; `./Alltest` runs all verification tests.
 - `tutorials/advection1D/travellingSine/Allrun` runs the full refinement
-  sweep for all four schemes on both mesh families and produces the tables
-  and plots.
+  sweep for all schemes in section 6 on both `Left` mesh families (plus
+  the small `Right` aligned case) and produces the tables and plots.
 - The guide in section 8 is written, lint-clean and uses only numbers
   produced by these scripts.
 
@@ -206,7 +218,27 @@ Solve `fvm::div(phiST, u) == 0` with `phiST = fvc::flux(Ust)`,
 `Ust = (a, 1, 0)`. Use a nonsymmetric linear solver (`PBiCGStab` with
 `DILU`) and iterate until converged (deferred correction for
 `linearUpwind`). Inflow patches use `spaceTimeAnalyticalFixedValue`;
-outflow patches use `zeroGradient`.
+outflow patches use `zeroGradient` (primary, as specified).
+
+Known effect (S2 audit): OpenFOAM's `linearUpwind` adds no correction on
+non-coupled boundary faces, so with `zeroGradient` the outflow face value
+is `u_f = u_P`, which is O(h) wrong in the strip of outflow boundary
+cells. This gives the boundary-strip signature L1 ~ h^2, L2 ~ h^1.5,
+Linf ~ h. OpenFOAM's `leastSquares` gradient is also inconsistent at
+non-coupled boundary faces (it uses only the patch-normal part of the
+face offset), which makes CC-2-LS first order in inflow boundary cells.
+Both effects are reported, not hidden.
+
+Outflow variant (before S5): `spaceTimeLinearExtrapolation`, a boundary
+condition setting `u_f = u_P + grad(u)_P . (C_f - C_P)` with the full
+offset vector (not only its normal part), re-evaluated every outer
+(deferred-correction) iteration from the current `grad(u)`. Its update
+mechanism must be documented and its effect on convergence (iterations,
+final residual) reported against `zeroGradient`.
+
+The `cellCentred` source term: until a tested source implementation
+exists, `cellCentred` must stop with a fatal error if the selected
+`analyticalSolution` has a non-zero source.
 
 ### VCFV (`vertexCentred`)
 
@@ -294,6 +326,11 @@ Required sections:
 10. Findings and nuances: fairness of the comparison (unknown counts,
     evaluation locations, final-time values for CCFV), boundary treatment
     effects, perturbed versus structured meshes, anything surprising.
+    Must include the characteristic-alignment case (`Right` diagonals
+    with a = 1), the boundary-strip error signature (L1 ~ h^2,
+    L2 ~ h^1.5, Linf ~ h) compared with the observed orders, the
+    `leastSquares` boundary inconsistency, and what the extrapolated
+    t = T value does and does not measure.
 11. When each approach is likely to be useful, and recommended next steps.
 12. References.
 
