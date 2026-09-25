@@ -1,0 +1,22 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     Allrun
+#
+# Description
+#     STUB: to be completed in stage S5 (refinement sweep for all four schemes
+#     on the structured and perturbed meshes). For now it only creates the
+#     mesh.
+#
+#     Usage: ./Allrun [N]   (default N = 8)
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+./Allmesh "$@" || exit 1
+
+#------------------------------------------------------------------------------

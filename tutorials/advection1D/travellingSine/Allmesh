@@ -1,0 +1,65 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     Allmesh
+#
+# Description
+#     Create the N x N structured right-triangle space-time mesh with gmsh,
+#     import it with gmshToFoam, set the patch types and run checkMesh.
+#
+#     Usage: ./Allmesh [N]   (default N = 8)
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+# Number of squares in x and in t
+N="${1:-8}"
+if ! [[ "$N" =~ ^[1-9][0-9]*$ ]]
+then
+    echo "Usage: ${0##*/} [N], where N is a positive integer"
+    exit 1
+fi
+
+# gmsh must be available
+if ! command -v gmsh > /dev/null 2>&1
+then
+    echo "gmsh not found: please install gmsh"
+    exit 1
+fi
+
+echo "Creating the space-time mesh with N = $N"
+
+# Mesh with gmsh. gmshToFoam in OpenFOAM v2412 reads the MSH 2.2 format.
+echo "Running gmsh on $PWD"
+if ! gmsh -3 -setnumber N "$N" -format msh22 -o spaceTimeSquare.msh \
+    gmsh/spaceTimeSquare.geo > log.gmsh 2>&1
+then
+    echo "gmsh failed: see log.gmsh"
+    exit 1
+fi
+
+# Import the mesh, replacing any previous mesh. The logs are overwritten
+# (-o) so that the script can be re-run with a different N.
+rm -rf constant/polyMesh
+runApplication -o gmshToFoam spaceTimeSquare.msh || exit 1
+
+# gmshToFoam makes every patch of type patch: frontAndBack must be empty
+runApplication -o foamDictionary constant/polyMesh/boundary \
+    -entry entry0/frontAndBack/type -set empty || exit 1
+
+# Check the mesh
+runApplication -o checkMesh || exit 1
+if ! grep -q "^Mesh OK." log.checkMesh
+then
+    echo "checkMesh did not report 'Mesh OK.': see log.checkMesh"
+    exit 1
+fi
+
+#------------------------------------------------------------------------------
