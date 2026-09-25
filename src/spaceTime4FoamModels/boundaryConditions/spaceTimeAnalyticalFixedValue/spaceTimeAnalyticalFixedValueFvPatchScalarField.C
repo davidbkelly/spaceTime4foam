@@ -166,14 +166,6 @@ void Foam::spaceTimeAnalyticalFixedValueFvPatchScalarField::updateCoeffs()
 }
 
 
-void Foam::spaceTimeAnalyticalFixedValueFvPatchScalarField::write
-(
-    Ostream& os
-) const
-{
-    fixedValueFvPatchScalarField::write(os);
-}
-
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

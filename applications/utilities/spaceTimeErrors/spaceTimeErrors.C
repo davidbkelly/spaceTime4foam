@@ -248,7 +248,7 @@ int main(int argc, char *argv[])
     errorNorms tEndExtrapolatedNorms;
     errorNorms tEndCellNorms;
     label nUnknowns = 0;
-    scalar timeValue = runTime.value();
+    const scalar timeValue = runTime.value();
 
     if (method == "cellCentred")
     {
