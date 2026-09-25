@@ -2,4 +2,6 @@ analyticalSolutions/analyticalSolution/analyticalSolution.C
 analyticalSolutions/analyticalSolution/newAnalyticalSolution.C
 analyticalSolutions/travellingSine/travellingSine.C
 
+boundaryConditions/spaceTimeAnalyticalFixedValue/spaceTimeAnalyticalFixedValueFvPatchScalarField.C
+
 LIB = $(FOAM_MODULE_LIBBIN)/libspaceTime4FoamModels
