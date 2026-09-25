@@ -148,6 +148,13 @@ Boundary treatment (primary runs): data only on inflow boundaries.
   to show whether the boundary closure limits accuracy. CCFV: boundary
   cells are cells with a face on a non-empty patch. VCFV: boundary nodes
   are nodes on any boundary edge, including the t = T boundary.
+- L1 and L2 are normalised by the area of their own subset
+  (`L1 = sum |e| A / sum A`, `L2 = sqrt(sum e^2 A / sum A)`); Linf is a
+  plain max. Mesh size `h = sqrt(A_domain / (nTriangles / 2))`, which is
+  1/N on both mesh families.
+- Order checks are report-only until regression values are frozen after
+  S5. Never tune numerics to hit a target order; investigate and report
+  unexpected orders instead.
 - Final-time error at t = T. For VCFV the nodes lie on t = T. For CCFV,
   document how the face value is obtained (for example, linear
   extrapolation with the cell gradient) and why this matters.
