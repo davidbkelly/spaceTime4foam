@@ -17,7 +17,10 @@
 //     triangle area.
 //
 //     The OpenCASCADE kernel is used because it places the transfinite
-//     nodes at exactly i/N; the built-in kernel gives errors of about 1e-12.
+//     nodes at i/N to within a few units of round-off (exactly when N is a
+//     power of two); the built-in kernel gives errors of about 1e-12. The
+//     case writes points with writePrecision 17 so that gmshToFoam keeps
+//     them at full double precision.
 //     Patches are selected by bounding box, so they do not depend on the
 //     order of the surfaces returned by Extrude.
 //
