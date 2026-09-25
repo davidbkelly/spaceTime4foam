@@ -49,10 +49,10 @@ set -o pipefail
 failedParts=()
 
 # Compile libraries
-(cd src && ./Allwmake $* 2>&1 | tee log.Allwmake) || failedParts+=("src")
+(cd src && ./Allwmake "$@" 2>&1 | tee log.Allwmake) || failedParts+=("src")
 
 # Compile applications
-(cd applications && ./Allwmake $* 2>&1 | tee log.Allwmake) \
+(cd applications && ./Allwmake "$@" 2>&1 | tee log.Allwmake) \
     || failedParts+=("applications")
 # Restore the default: the greps below return 1 when nothing matches
 set +o pipefail

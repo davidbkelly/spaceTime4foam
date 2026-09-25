@@ -24,7 +24,7 @@ for appType in solvers utilities test
 do
     if [ -f "$appType/Allwmake" ]
     then
-        (cd "$appType" && ./Allwmake $*)
+        (cd "$appType" && ./Allwmake "$@")
     elif [ -d "$appType" ]
     then
         echo "Missing $appType/Allwmake"

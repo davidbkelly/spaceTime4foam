@@ -54,12 +54,16 @@ function linkMakeFiles()
     fi
 }
 
-for lib in spaceTime4FoamModels
+libs=(spaceTime4FoamModels)
+
+for lib in "${libs[@]}"
 do
     if [ -d "$lib/Make" ]
     then
         linkMakeFiles "$lib"
-        wmake ${targetType:-libso} "$lib"
+        # targetType is set by AllwmakeParseArguments
+        # shellcheck disable=SC2154
+        wmake "${targetType:-libso}" "$lib"
     else
         echo "Skipping $lib: not present yet"
     fi

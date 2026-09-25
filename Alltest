@@ -25,7 +25,6 @@ cd "${0%/*}" || exit  # Run from this directory
 function usage()
 {
     exec 1>&2
-    while [ "$#" -ge 1 ]; do echo "$1"; shift; done
     cat<<USAGE
 
 usage: ${0##*/} [OPTION] [test1 test2 ...]

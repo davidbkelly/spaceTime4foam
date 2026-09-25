@@ -26,11 +26,14 @@ do
     app="${app%/}"
     if [ -f "$app/Allwmake" ]
     then
-        (cd "$app" && ./Allwmake $*)
+        (cd "$app" && ./Allwmake "$@")
         nApps=$((nApps + 1))
     elif [ -d "$app/Make" ]
     then
-        wmake $targetType "$app"
+        # targetType is set by AllwmakeParseArguments; an empty value must
+        # not be passed to wmake as an empty argument
+        # shellcheck disable=SC2154
+        wmake ${targetType:+"$targetType"} "$app"
         nApps=$((nApps + 1))
     fi
 done

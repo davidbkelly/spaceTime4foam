@@ -28,9 +28,10 @@ fi
 (cd applications && ./Allwclean)
 
 # Clean tutorial and test cases
-for caseDir in $(find tutorials tests -name Allclean -type f 2>/dev/null)
+find tutorials tests -name Allclean -type f -print0 2>/dev/null \
+    | while IFS= read -r -d "" allclean
 do
-    (cd "${caseDir%/*}" && ./Allclean)
+    (cd "${allclean%/*}" && ./Allclean)
 done
 
 # Clear all build and test logs

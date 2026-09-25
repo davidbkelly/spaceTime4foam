@@ -1,0 +1,4 @@
+# shellcheck configuration for spaceTime4foam
+# The sourced OpenFOAM files (RunFunctions, CleanFunctions,
+# AllwmakeParseArguments) are outside this repository and are not followed.
+disable=SC1091

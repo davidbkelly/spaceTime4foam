@@ -17,7 +17,9 @@ echo
 echo "Cleaning src"
 echo
 
-for lib in spaceTime4FoamModels
+libs=(spaceTime4FoamModels)
+
+for lib in "${libs[@]}"
 do
     if [ -d "$lib/Make" ]
     then
