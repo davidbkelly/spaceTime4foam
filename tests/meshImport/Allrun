@@ -10,7 +10,7 @@
 # Description
 #     Mesh-import test. Copies the travellingSine tutorial mesh set-up (the
 #     gmsh .geo file, Allmesh and system/) into run/, meshes it with N = 8
-#     and checks the imported OpenFOAM mesh:
+#     and the default left diagonals, and checks the imported OpenFOAM mesh:
 #       - checkMesh reports "Mesh OK."
 #       - 2 N^2 cells, all prisms, and 2 (N + 1)^2 points
 #       - patches tStart, tEnd, xLeft and xRight have N faces each and type
@@ -20,7 +20,10 @@
 #       - z is 0 or 1, front and back points pair up with identical (x, y),
 #         and every x and y is exactly i/N
 #       - every patch face lies on its patch plane
-#       - all triangle diagonals have the same direction (see below)
+#       - all triangle diagonals have the same direction (see below): for
+#         left diagonals, N^2 with dx*dy < 0 and none with dx*dy > 0
+#     It then meshes the right-diagonal option in run/right/ and checks
+#     that it gives N^2 diagonals with dx*dy > 0 and none with dx*dy < 0.
 #     Exits with a non-zero status if any check fails.
 #
 #------------------------------------------------------------------------------
@@ -203,12 +206,18 @@ check "xRight points off x = 1" "$(patchOffPlane xRight 1 1)" "0"
 # Diagonal direction.
 # Each internal face is a quad extruded from one triangle edge. Its two
 # points at z = 0 give the edge vector (dx, dy). Axis-aligned edges have
-# dx = 0 or dy = 0. With a single diagonal direction every diagonal edge
-# has dx*dy > 0 (lower-left to upper-right), and there is exactly one
-# diagonal per square: N^2 diagonals with dx*dy > 0 and none with
-# dx*dy < 0.
-nInternalFaces=$(awk '/^ *internal faces:/ {print $3; exit}' log.checkMesh)
-diagonals=$(awk -v nInternal="$nInternalFaces" '
+# dx = 0 or dy = 0. There is exactly one diagonal per square. With left
+# diagonals (upper-left to lower-right) every diagonal has dx*dy < 0: N^2
+# diagonals with dx*dy < 0 and none with dx*dy > 0. With right diagonals
+# (lower-left to upper-right) it is the other way round.
+# diagonalCounts
+# Print the numbers of diagonals with dx*dy > 0 and with dx*dy < 0 for the
+# mesh in the current directory
+function diagonalCounts()
+{
+    local nInternalFaces
+    nInternalFaces=$(awk '/^ *internal faces:/ {print $3; exit}' log.checkMesh)
+    awk -v nInternal="$nInternalFaces" '
     # Read the list size, skip "(", then read the list entries
     FNR == 1 { state = 0; n = 0 }
     state == 0 && /^[0-9]+$/ { size = $1; state = 1; next }
@@ -244,8 +253,25 @@ diagonals=$(awk -v nInternal="$nInternalFaces" '
         n++
     }
     END { printf "%d %d\n", nPlus, nMinus }
-' constant/polyMesh/points constant/polyMesh/faces)
-check "diagonals with dx*dy > 0 and < 0" "$diagonals" "$((N*N)) 0"
+' constant/polyMesh/points constant/polyMesh/faces
+}
+
+check "left diagonals with dx*dy > 0 and < 0" "$(diagonalCounts)" \
+    "0 $((N*N))"
+
+# The right-diagonal option
+echo
+echo "Checking the right-diagonal mesh option (N = $N)"
+mkdir right
+cp -r gmsh system Allmesh right/
+if right/Allmesh "$N" right > right/log.Allmesh 2>&1
+then
+    check "right diagonals: Allmesh" "yes" "yes"
+    check "right diagonals with dx*dy > 0 and < 0" \
+        "$(cd right && diagonalCounts)" "$((N*N)) 0"
+else
+    check "right diagonals: Allmesh (see run/right/log.Allmesh)" "no" "yes"
+fi
 
 echo
 if [[ $nFailed -gt 0 ]]
