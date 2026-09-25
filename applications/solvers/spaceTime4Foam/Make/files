@@ -1,0 +1,3 @@
+spaceTime4Foam.C
+
+EXE = $(FOAM_MODULE_APPBIN)/spaceTime4Foam

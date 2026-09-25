@@ -1,0 +1,15 @@
+SPACETIME4FOAM_ROOT := ../../..
+
+sinclude $(SPACETIME4FOAM_ROOT)/etc/wmake-options
+
+EXE_INC = \
+    $(VERSION_SPECIFIC_INC) \
+    -I$(SPACETIME4FOAM_ROOT)/src/spaceTime4FoamModels/lnInclude \
+    -I$(LIB_SRC)/finiteVolume/lnInclude \
+    -I$(LIB_SRC)/meshTools/lnInclude
+
+EXE_LIBS = \
+    $(VERSION_SPECIFIC_LIBS) \
+    -lfiniteVolume \
+    -lmeshTools \
+    -L$(FOAM_MODULE_LIBBIN) -lspaceTime4FoamModels
