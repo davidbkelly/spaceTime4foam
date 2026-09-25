@@ -106,6 +106,12 @@ public:
             //- Return the space-time gradient (du/dx, du/dt, 0) at p
             virtual vector gradient(const point& p) const;
 
+            //- The source is identically zero
+            virtual bool hasSource() const
+            {
+                return false;
+            }
+
             //- Return the source div_st(A u), which is zero
             virtual scalar source(const point& p) const;
 

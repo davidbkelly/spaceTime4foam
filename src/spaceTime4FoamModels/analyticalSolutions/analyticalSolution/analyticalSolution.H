@@ -157,6 +157,12 @@ public:
             //- Return the space-time gradient (du/dx, du/dt, 0) at p
             virtual vector gradient(const point& p) const = 0;
 
+            //- Return true if the source S = div_st(A u) is not identically
+            //  zero. Pure virtual, so that every analytical solution must
+            //  state it: a model that cannot handle a source (cellCentred)
+            //  stops instead of silently dropping it
+            virtual bool hasSource() const = 0;
+
             //- Return the source S = div_st(A u) = A & gradient at p
             virtual scalar source(const point& p) const = 0;
 

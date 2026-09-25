@@ -32,6 +32,9 @@ Description
     the correction from the current u to the source, so each iteration is
     one step of deferred correction.
 
+    There is no source term: construction fails if the analytical solution
+    has one (analyticalSolution::hasSource()).
+
     One linear solve per iteration (use a nonsymmetric solver, e.g.
     PBiCGStab with DILU). Converged when the initial residual of the solve
     falls below convergenceTolerance.

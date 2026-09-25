@@ -78,7 +78,18 @@ Foam::spaceTimeModels::cellCentred::cellCentred(Time& runTime)
         fvc::flux(Ust_)
     ),
     residual_(GREAT)
-{}
+{
+    // No source term in the CCFV discretisation yet: stop rather than
+    // solve the wrong problem
+    if (analytical().hasSource())
+    {
+        FatalErrorInFunction
+            << "The analyticalSolution "
+            << analytical().type() << " has a non-zero source term, but"
+            << " the source term is not implemented in the cellCentred"
+            << " spaceTimeModel yet" << exit(FatalError);
+    }
+}
 
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
