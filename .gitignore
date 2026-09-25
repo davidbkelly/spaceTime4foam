@@ -51,7 +51,6 @@ processor*/
 postProcessing/
 VTK/
 *.foam
-*.OpenFOAM
 
 # editor and misc backup files - anywhere
 *~
