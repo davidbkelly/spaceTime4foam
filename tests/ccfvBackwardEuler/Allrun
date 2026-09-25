@@ -1,0 +1,225 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/ccfvBackwardEuler/Allrun
+#
+# Description
+#     CCFV sanity check (CLAUDE.md section 6, verification test 1): on a quad
+#     space-time mesh, CC-1 (upwind) must match stock scalarTransportFoam
+#     with Euler time stepping and upwind in space, to solver tolerance.
+#
+#     Space-time case (spaceTime/): blockMesh, x in [0, 1] with Nx = 20 and
+#     t in [0, 1] with Nt = 10, so dx = 0.05, dt = 0.1, a = 1 and CFL = 2.
+#     1D case (scalarTransport/): 20 cells on x in [0, 1], U = (1 0 0),
+#     DT = 0, dt = 0.1, written every step.
+#
+#     Why they are the same scheme. Label the space-time cells (i, m), with
+#     x-centre x_i = (i - 1/2) dx and t-centre (m - 1/2) dt, m = 1..Nt. Cell
+#     (i, m) has four faces (thickness 1 in z, A = (a, 1, 0)):
+#       bottom: A.S = -dx,    upwind value u_(i,m-1) (tStart data if m = 1)
+#       top:    A.S = +dx,    upwind value u_(i,m)
+#       left:   A.S = -a dt,  upwind value u_(i-1,m) (xLeft data if i = 1)
+#       right:  A.S = +a dt,  upwind value u_(i,m)
+#     Summing the face fluxes, div_st(A u) = 0 over the cell gives
+#       dx (u_(i,m) - u_(i,m-1)) + a dt (u_(i,m) - u_(i-1,m)) = 0,
+#     which is backward Euler in time with upwind in space,
+#       (u_i^(n+1) - u_i^n)/dt + a (u_i^(n+1) - u_(i-1)^(n+1))/dx = 0,
+#     with u_i^(n+1) = u_(i,m) for m = n + 1. So space-time row m is the 1D
+#     solution at time t = m dt, and the space-time tStart face values
+#     (the analytical data at (x_i, 0)) are the 1D initial values.
+#
+#     Why the inflow value is taken at t - dt/2. The left face of cell
+#     (1, m) has its centre at (0, (m - 1/2) dt), so the space-time scheme
+#     uses u(0, t_(n+1/2)) as the inflow value of row m = n + 1. Backward
+#     Euler at step n + 1 evaluates the inflow boundary value at t_(n+1).
+#     The 1D inlet is therefore given the value
+#       u(0, t - dt/2) = sin(2 pi (0 - (t - dt/2)))
+#     at time t, with a sine Function1 (see scalarTransport/0.orig/T).
+#
+#     Check: every space-time cell of row m (t-centre (m - 1/2) dt) is
+#     compared with the 1D cell with the same x at time m dt. The number of
+#     cells, rows and 1D times must match, and every cell must be paired
+#     exactly once with a 1D cell at the same x (to 1e-12). PASS if the
+#     maximum |difference| <= 1e-10 (both linear solvers use tolerance 1e-14
+#     and relTol 0).
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+nx=20
+nt=10
+dt=0.1
+tol=1e-10
+
+rm -rf run
+mkdir run
+cp -r spaceTime scalarTransport run/
+
+# Space-time case: CC-1
+(
+    cd run/spaceTime || exit 1
+    runApplication blockMesh || exit 1
+    runApplication postProcess -func writeCellCentres -time 0 || exit 1
+    runApplication spaceTime4Foam || exit 1
+) || { echo "FAIL: the space-time case did not run"; exit 1; }
+
+# 1D case: backward Euler
+(
+    cd run/scalarTransport || exit 1
+    restore0Dir
+    runApplication blockMesh || exit 1
+    runApplication setExprFields || exit 1
+    runApplication postProcess -func writeCellCentres -time 0 || exit 1
+    runApplication scalarTransportFoam || exit 1
+) || { echo "FAIL: the scalarTransportFoam case did not run"; exit 1; }
+
+cd run || exit 1
+
+# readInternalField <file>
+# Print the entries of a nonuniform internalField list, one per line, with
+# brackets removed. Prints nothing for a uniform field.
+function readInternalField()
+{
+    awk '
+        state == 0 && /^internalField +nonuniform/ { state = 1; next }
+        state == 1 && /^[0-9]+$/ { size = $1; state = 2; next }
+        state == 2 && /^\($/ { state = 3; n = 0; next }
+        state == 3 && n < size {
+            line = $0
+            gsub(/[()]/, "", line)
+            print line
+            n++
+        }
+    ' "$1"
+}
+
+# Space-time results: the converged iteration is the latest time
+stTime=$(foamListTimes -case spaceTime -latestTime 2>/dev/null | tail -1)
+if [ -z "$stTime" ]
+then
+    echo "FAIL: no space-time result found"
+    exit 1
+fi
+echo "Space-time solution at iteration $stTime"
+
+readInternalField spaceTime/0/C > stC.txt
+readInternalField "spaceTime/$stTime/u" > stU.txt
+paste -d ' ' stC.txt stU.txt > st.txt
+
+# 1D results: cell centres, then one line "time value" per cell and time
+readInternalField scalarTransport/0/C > oneDC.txt
+: > oneD.txt
+nTimes=0
+for timeDir in $(foamListTimes -case scalarTransport 2>/dev/null)
+do
+    readInternalField "scalarTransport/$timeDir/T" \
+        | awk -v t="$timeDir" '{print t, $1}' >> oneD.txt
+    nTimes=$((nTimes + 1))
+done
+echo "1D solution at $nTimes times"
+
+# Pair the cells and compare
+result=$(awk -v nx="$nx" -v nt="$nt" -v dt="$dt" -v nTimes="$nTimes" '
+    FILENAME ~ /oneDC.txt$/ { nC++; xC[nC] = $1; next }
+    FILENAME ~ /oneD.txt$/ {
+        # Time index m = t/dt and cell index within that time
+        m = int($1/dt + 0.5)
+        if ($1 - m*dt > 1e-9 || m*dt - $1 > 1e-9) { nBadTime++ }
+        count[m]++
+        T[m, count[m]] = $2
+        next
+    }
+    FILENAME ~ /st.txt$/ {
+        nSt++
+        x = $1; t = $2; u = $4
+        # Row m has t-centre (m - 1/2) dt
+        m = int(t/dt + 0.5 + 0.5)
+        if (t - (m - 0.5)*dt > 1e-9 || (m - 0.5)*dt - t > 1e-9) { nBadRow++ }
+        # 1D cell with the same x
+        match1D = 0
+        for (i = 1; i <= nC; i++)
+        {
+            dx = xC[i] - x
+            if (dx < 1e-12 && dx > -1e-12) { match1D = i; nMatch++ }
+        }
+        if (match1D == 0 || !((m, match1D) in T)) { nUnpaired++; next }
+        if (((m, match1D) in used)) { nDuplicate++ }
+        used[m, match1D] = 1
+        d = u - T[m, match1D]
+        if (d < 0) { d = -d }
+        if (d > maxDiff) { maxDiff = d }
+        if (u > maxU) { maxU = u }
+        if (-u > maxU) { maxU = -u }
+    }
+    END {
+        nRows = 0
+        for (m = 1; m <= nt; m++) { if (count[m] == nx) { nRows++ } }
+        printf "%d %d %d %d %d %d %d %d %.6e %.6e\n", \
+            nSt, nC, nTimes, nRows, nMatch, nUnpaired + 0, \
+            nDuplicate + 0, nBadRow + nBadTime, maxU, maxDiff
+    }
+' oneDC.txt oneD.txt st.txt)
+
+read -r nSt nC nT nRows nMatch nUnpaired nDuplicate nBad maxU maxDiff <<< "$result"
+
+nFailed=0
+
+# check <description> <actual> <expected>
+function check()
+{
+    if [ "$2" = "$3" ]
+    then
+        echo "    PASS: $1 ($2)"
+    else
+        echo "    FAIL: $1 (got '$2', expected '$3')"
+        nFailed=$((nFailed + 1))
+    fi
+}
+
+echo
+echo "Comparing space-time CC-1 with scalarTransportFoam (Euler, upwind)"
+check "space-time cells, Nx Nt" "$nSt" "$((nx*nt))"
+check "1D cells, Nx" "$nC" "$nx"
+# 1D times after 0 (foamListTimes omits 0)
+check "1D times written, Nt" "$nT" "$nt"
+check "1D times with Nx values, t = m dt, m = 1..Nt" "$nRows" "$nt"
+check "space-time cells with a 1D cell at the same x" "$nMatch" "$((nx*nt))"
+check "unpaired cells" "$nUnpaired" "0"
+check "cells paired twice" "$nDuplicate" "0"
+check "cells off their row or time centre" "$nBad" "0"
+
+# Guard against a trivial (e.g. zero) solution
+if awk -v u="$maxU" 'BEGIN { exit !(u > 0.5) }'
+then
+    check "max |u| > 0.5, a non-trivial solution" "yes ($maxU)" "yes ($maxU)"
+else
+    check "max |u| > 0.5, a non-trivial solution" "no ($maxU)" "yes"
+fi
+
+echo
+echo "    max |u_spaceTime - T_1D| = $maxDiff (tolerance $tol)"
+if awk -v d="$maxDiff" -v tol="$tol" 'BEGIN { exit !(d != "" && d <= tol) }'
+then
+    echo "    PASS: max difference <= $tol"
+else
+    echo "    FAIL: max difference > $tol"
+    nFailed=$((nFailed + 1))
+fi
+
+echo
+if [[ $nFailed -gt 0 ]]
+then
+    echo "ccfvBackwardEuler: $nFailed check(s) FAILED"
+    exit 1
+else
+    echo "ccfvBackwardEuler: all checks passed"
+fi
+
+#------------------------------------------------------------------------------

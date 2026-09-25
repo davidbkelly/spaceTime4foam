@@ -1,0 +1,33 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      setExprFieldsDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Initial data u(x, 0) = sin(2 pi x) at the cell centres
+
+expressions
+(
+    T
+    {
+        field       T;
+        dimensions  [0 0 0 0 0 0 0];
+
+        expression
+        #{
+            sin(2*pi()*pos().x())
+        #};
+    }
+);
+
+// ************************************************************************* //

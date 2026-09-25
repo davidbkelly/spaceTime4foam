@@ -1,0 +1,73 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Space-time quad mesh on [0, 1] x [0, 1]: mesh x is x, mesh y is t.
+// Nx = 20 and Nt = 10, so dx = 0.05, dt = 0.1 and the CFL number
+// a dt/dx = 2 (a = 1). One cell of thickness 1 in z.
+
+scale   1;
+
+vertices
+(
+    (0 0 0)
+    (1 0 0)
+    (1 1 0)
+    (0 1 0)
+    (0 0 1)
+    (1 0 1)
+    (1 1 1)
+    (0 1 1)
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) (20 10 1) simpleGrading (1 1 1)
+);
+
+boundary
+(
+    tStart
+    {
+        type patch;
+        faces ((0 1 5 4));
+    }
+    tEnd
+    {
+        type patch;
+        faces ((3 7 6 2));
+    }
+    xLeft
+    {
+        type patch;
+        faces ((0 4 7 3));
+    }
+    xRight
+    {
+        type patch;
+        faces ((1 2 6 5));
+    }
+    frontAndBack
+    {
+        type empty;
+        faces
+        (
+            (0 3 2 1)
+            (4 5 6 7)
+        );
+    }
+);
+
+// ************************************************************************* //
