@@ -8,8 +8,10 @@
 #     tests/ccfvOrder/Allrun
 #
 # Description
-#     CCFV observed orders on the structured gmsh triangle meshes,
-#     N = 8, 16, 32 and 64, for the schemes
+#     CCFV observed orders on the structured gmsh triangle meshes with left
+#     diagonals (direction (1, -1), the benchmark family of CLAUDE.md
+#     section 6),
+#     N = 8, 16, 32, 64 and 128, for the schemes
 #       CC-1     div(phiST,u) Gauss upwind
 #       CC-2     div(phiST,u) Gauss linearUpwind grad(u), grad(u) Gauss linear
 #       CC-2-LS  as CC-2 with grad(u) leastSquares
@@ -32,7 +34,7 @@ cd "${0%/*}" || exit  # Run from this directory
 . "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
 
 tutorialDir=../../tutorials/advection1D/travellingSine
-meshSizes="8 16 32 64"
+meshSizes="8 16 32 64 128"
 schemes="CC-1 CC-2 CC-2-LS"
 
 # divScheme <scheme>, gradScheme <scheme>: the fvSchemes entries
@@ -62,7 +64,8 @@ norms="L1_all L2_all Linf_all L1_int L2_int Linf_int L1_bnd L2_bnd Linf_bnd"
 norms="$norms L1_TExtrap L2_TExtrap Linf_TExtrap L1_TCell L2_TCell Linf_TCell"
 
 {
-    echo "# CCFV errors on the structured triangle meshes (tests/ccfvOrder)"
+    echo "# CCFV errors on the structured left-diagonal triangle meshes"
+    echo "# (tests/ccfvOrder)"
     echo "# int = interior cells, bnd = boundary cells (a face on a"
     echo "# non-empty patch), TExtrap/TCell = t = T error on tEnd with the"
     echo "# extrapolated face value / the cell value"
@@ -80,7 +83,7 @@ do
     mkdir -p "$meshDir"
     cp -r "$tutorialDir"/gmsh "$tutorialDir"/system "$tutorialDir"/Allmesh \
         "$meshDir"/
-    if ! "$meshDir"/Allmesh "$N" > "$meshDir"/log.Allmesh 2>&1
+    if ! "$meshDir"/Allmesh "$N" left > "$meshDir"/log.Allmesh 2>&1
     then
         echo "FAIL: Allmesh $N (see $meshDir/log.Allmesh)"
         exit 1
