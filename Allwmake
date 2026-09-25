@@ -43,19 +43,32 @@ then
     echo "    Tested versions: ${tested_ver[*]}"
 fi
 
+# Make each pipeline below return the exit status of the Allwmake script,
+# not of tee, so that failures without an " Error " message are caught
+set -o pipefail
+failedParts=()
+
 # Compile libraries
-(cd src && ./Allwmake $* 2>&1 | tee log.Allwmake)
+(cd src && ./Allwmake $* 2>&1 | tee log.Allwmake) || failedParts+=("src")
 
 # Compile applications
-(cd applications && ./Allwmake $* 2>&1 | tee log.Allwmake)
+(cd applications && ./Allwmake $* 2>&1 | tee log.Allwmake) \
+    || failedParts+=("applications")
+# Restore the default: the greps below return 1 when nothing matches
+set +o pipefail
 
 # Check if the build succeeded
 echo "Checking if the build was a success:"
 N_ERRORS_1=$(find . -name log.Allwmake -print0 | xargs -0 grep " Error " | wc -l)
 N_ERRORS_2=$(find . -name log.Allwmake -print0 | xargs -0 grep " Stop." | wc -l)
-if [[ $N_ERRORS_1 -gt 0 ]] || [[ $N_ERRORS_2 -gt 0 ]]
+if [[ $N_ERRORS_1 -gt 0 ]] || [[ $N_ERRORS_2 -gt 0 ]] \
+    || [[ ${#failedParts[@]} -gt 0 ]]
 then
     echo "** BUILD ERROR **"
+    if [[ ${#failedParts[@]} -gt 0 ]]
+    then
+        echo "The Allwmake script failed in: ${failedParts[*]}"
+    fi
     echo "There were build errors in the following logs:"
     find . -name log.Allwmake -print0 | xargs -0 grep -l " Error " || true
     find . -name log.Allwmake -print0 | xargs -0 grep -l " Stop." || true
