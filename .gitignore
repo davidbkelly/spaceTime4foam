@@ -41,11 +41,29 @@ linuxming*/
 *.msh
 tutorials/**/constant/polyMesh/
 tests/**/constant/polyMesh/
-# - time (iteration) directories other than 0
-tutorials/**/[1-9]*/
-tutorials/**/0.[0-9]*/
-tests/**/[1-9]*/
-tests/**/0.[0-9]*/
+# - time (iteration) directories other than 0. Only names made of digits
+#   (up to 7), or decimals such as 0.5 and 1e-05, are matched, so that
+#   case or test directories such as 2Dfoo are not ignored
+tutorials/**/[1-9]/
+tutorials/**/[1-9][0-9]/
+tutorials/**/[1-9][0-9][0-9]/
+tutorials/**/[1-9][0-9][0-9][0-9]/
+tutorials/**/[1-9][0-9][0-9][0-9][0-9]/
+tutorials/**/[1-9][0-9][0-9][0-9][0-9][0-9]/
+tutorials/**/[1-9][0-9][0-9][0-9][0-9][0-9][0-9]/
+tutorials/**/[0-9].[0-9]*/
+tutorials/**/[1-9][0-9].[0-9]*/
+tutorials/**/[0-9]e-[0-9]*/
+tests/**/[1-9]/
+tests/**/[1-9][0-9]/
+tests/**/[1-9][0-9][0-9]/
+tests/**/[1-9][0-9][0-9][0-9]/
+tests/**/[1-9][0-9][0-9][0-9][0-9]/
+tests/**/[1-9][0-9][0-9][0-9][0-9][0-9]/
+tests/**/[1-9][0-9][0-9][0-9][0-9][0-9][0-9]/
+tests/**/[0-9].[0-9]*/
+tests/**/[1-9][0-9].[0-9]*/
+tests/**/[0-9]e-[0-9]*/
 # - scratch run directories created by the test scripts
 tests/*/run/
 # - other run-generated output
@@ -58,7 +76,6 @@ VTK/
 *~
 .*~
 *.bak
-*.orig
 *.rej
 \#*\#
 
