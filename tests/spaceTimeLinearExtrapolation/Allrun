@@ -10,23 +10,24 @@
 # Description
 #     Test of the spaceTimeLinearExtrapolation outflow boundary condition.
 #     Runs the travellingSine tutorial case on the N = 16 left-diagonal
-#     triangle mesh with tEnd and xRight set to spaceTimeLinearExtrapolation,
-#     for
+#     triangle mesh with tEnd and xRight set to spaceTimeLinearExtrapolation
+#     (cornerFallback on, the default), for
 #       CC-2-EX     div(phiST,u) Gauss linearUpwind grad(u),
 #                   grad(u) Gauss linear
-#     and runs Test-spaceTimeLinearExtrapolation on the converged solution,
-#     which checks on every outflow face that the face value equals
-#     u_P + grad(u)_P & (C_f - C_P) and that it differs from the
-#     zeroGradient value u_P (see the Test-spaceTimeLinearExtrapolation
-#     description for the checks and tolerances).
+#       CC-2-LS-EX  as CC-2-EX with grad(u) leastSquares
+#     and checks:
+#       - the solver log reports exactly 2 corner-fallback faces (the tEnd
+#         and xRight faces of the top-right corner cell);
+#       - Test-spaceTimeLinearExtrapolation on the converged solution: on
+#         every outflow face the face value equals
+#         u_P + grad(u)_P & (C_f - C_P), except on the 2 fallback faces,
+#         where it equals u_P, and it differs from u_P on other faces (see
+#         the Test-spaceTimeLinearExtrapolation description for the checks
+#         and tolerances).
+#     Then checks the guard with cornerFallback off (one iteration each):
+#       - leastSquares: spaceTime4Foam must stop with a fatal error;
+#       - Gauss linear: spaceTime4Foam must print the neutral-mode warning.
 #     Exits with a non-zero status if a run fails or any check fails.
-#
-#     CC-2-LS-EX (grad(u) leastSquares) is not run: in the top-right corner
-#     cell, which has two outflow faces, the leastSquares gradient and the
-#     extrapolated face values form an unstable fixed-point iteration (gain
-#     1.5 per iteration) in a direction the cell balance does not see, so
-#     the corner face values are not converged when the residual is (check
-#     2 fails). Kept out until this is resolved.
 #
 #------------------------------------------------------------------------------
 cd "${0%/*}" || exit  # Run from this directory
@@ -42,7 +43,7 @@ fi
 
 N=16
 tutorialDir=../../tutorials/advection1D/travellingSine
-schemes="CC-2-EX"
+schemes="CC-2-EX CC-2-LS-EX"
 
 # gradScheme <scheme>: the grad(u) entry of fvSchemes
 function gradScheme()
@@ -91,9 +92,23 @@ do
                 -set spaceTimeLinearExtrapolation > /dev/null 2>&1 || exit 1
         done
         runApplication spaceTime4Foam || exit 1
-        runApplication Test-spaceTimeLinearExtrapolation || exit 1
+        runApplication Test-spaceTimeLinearExtrapolation -fallbackFaces 2 \
+            || exit 1
     )
     status=$?
+
+    # Number of corner-fallback faces reported by the solver (all patches)
+    nFallback=$(grep "faces use the corner fallback" \
+        "$caseDir"/log.spaceTime4Foam 2>/dev/null \
+        | awk '{n += $4} END {print n + 0}')
+    if [ "$nFallback" = "2" ]
+    then
+        echo "    PASS: solver log: $nFallback corner-fallback faces"
+    else
+        echo "    FAIL: solver log: '$nFallback' corner-fallback faces," \
+            "expected 2"
+        status=1
+    fi
 
     logFile="$caseDir/log.Test-spaceTimeLinearExtrapolation"
     if [ -f "$logFile" ]
@@ -107,6 +122,56 @@ do
         nFailed=$((nFailed + 1))
         failedRuns="$failedRuns $scheme"
     fi
+done
+
+# Guard with cornerFallback off, from a copy of each case
+for scheme in $schemes
+do
+    caseDir="run/${scheme}-noFallback"
+    rm -rf "$caseDir"
+    mkdir -p "$caseDir"
+    cp -r "run/$scheme"/0 "run/$scheme"/constant "run/$scheme"/system \
+        "$caseDir"/
+    (
+        cd "$caseDir" || exit 1
+        for patch in tEnd xRight
+        do
+            foamDictionary 0/u -entry "boundaryField/$patch/cornerFallback" \
+                -add off > /dev/null 2>&1 || exit 1
+        done
+        foamDictionary system/controlDict -entry endTime -set 1 \
+            > /dev/null 2>&1 || exit 1
+        spaceTime4Foam > log.spaceTime4Foam 2>&1
+    )
+    status=$?
+
+    logFile="$caseDir/log.spaceTime4Foam"
+    case "$scheme" in
+    CC-2-LS-EX)
+        if [[ $status -ne 0 ]] && grep -q "FOAM FATAL ERROR" "$logFile" \
+            && grep -q "is a least-squares scheme" "$logFile"
+        then
+            echo "    PASS: $scheme without fallback stops with a fatal error"
+        else
+            echo "    FAIL: $scheme without fallback: exit status $status," \
+                "no least-squares fatal error (see $logFile)"
+            nFailed=$((nFailed + 1))
+            failedRuns="$failedRuns ${scheme}-noFallback"
+        fi
+        ;;
+    *)
+        if grep -q "neutral mode" "$logFile" \
+            && ! grep -q "FOAM FATAL" "$logFile"
+        then
+            echo "    PASS: $scheme without fallback prints the warning"
+        else
+            echo "    FAIL: $scheme without fallback: no neutral-mode" \
+                "warning (see $logFile)"
+            nFailed=$((nFailed + 1))
+            failedRuns="$failedRuns ${scheme}-noFallback"
+        fi
+        ;;
+    esac
 done
 
 if [[ $nFailed -gt 0 ]]

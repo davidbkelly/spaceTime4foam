@@ -26,6 +26,10 @@ Description
 
         expected u_f = u_P + grad(u)_P & (C_f - C_P)
 
+    except on the corner-fallback faces: if the patch has cornerFallback on,
+    faces whose cell has two or more faces with this condition (counted
+    here, independently of the boundary condition) expect u_f = u_P.
+
     Checks:
     1. Formula (round-off): from the field as read, compute the expected
        value, then update and evaluate the boundary condition once. The new
@@ -42,6 +46,10 @@ Description
     4. Not trivial: the written value must differ from the zeroGradient
        value u_P by more than nonTrivialMin on at least one face, so that
        the test cannot pass with zeroGradient behaviour.
+    5. Corner fallback: on the fallback faces the written value must equal
+       u_P to formulaTol.
+    6. With -fallbackFaces <n>: the total number of fallback faces must be
+       n.
 
     Prints the maximum difference of each check and exits with status 1 if
     any check fails.
@@ -109,6 +117,13 @@ int main(int argc, char *argv[])
 
     timeSelector::addOptions_singleTime();
 
+    argList::addOption
+    (
+        "fallbackFaces",
+        "n",
+        "Expected total number of corner-fallback faces"
+    );
+
     // Only serial runs have been tested
     argList::noParallel();
 
@@ -156,6 +171,7 @@ int main(int argc, char *argv[])
     List<scalarField> writtenValues;
     List<scalarField> readValues;
     List<word> gradSchemeNames;
+    boolList cornerFallbacks;
 
     forAll(u.boundaryField(), patchi)
     {
@@ -184,6 +200,43 @@ int main(int argc, char *argv[])
             );
             readValues.append(scalarField(pf));
             gradSchemeNames.append(pf.gradSchemeName());
+            cornerFallbacks.append(pf.cornerFallback());
+        }
+    }
+
+    // Number of faces with the condition in each cell
+    labelList nFacesPerCell(mesh.nCells(), Zero);
+
+    forAll(patchIDs, i)
+    {
+        const labelUList& faceCells = mesh.boundary()[patchIDs[i]].faceCells();
+
+        forAll(faceCells, facei)
+        {
+            nFacesPerCell[faceCells[facei]]++;
+        }
+    }
+
+    // Corner-fallback faces of each patch
+    List<boolList> fallback(patchIDs.size());
+    label nFallbackFaces = 0;
+
+    forAll(patchIDs, i)
+    {
+        const labelUList& faceCells = mesh.boundary()[patchIDs[i]].faceCells();
+
+        fallback[i].setSize(faceCells.size(), false);
+
+        if (cornerFallbacks[i])
+        {
+            forAll(faceCells, facei)
+            {
+                if (nFacesPerCell[faceCells[facei]] >= 2)
+                {
+                    fallback[i][facei] = true;
+                    nFallbackFaces++;
+                }
+            }
         }
     }
 
@@ -205,6 +258,16 @@ int main(int argc, char *argv[])
         const tmp<volVectorField> tgradU =
             fvc::grad(u, gradSchemeNames[i]);
         expected[i] = expectedValues(u, tgradU(), patchIDs[i]);
+
+        const labelUList& faceCells = mesh.boundary()[patchIDs[i]].faceCells();
+
+        forAll(faceCells, facei)
+        {
+            if (fallback[i][facei])
+            {
+                expected[i][facei] = u[faceCells[facei]];
+            }
+        }
     }
 
     // Update all the patches first, then evaluate, so that every patch
@@ -237,10 +300,17 @@ int main(int argc, char *argv[])
         const scalarField correction(mag(writtenValues[i] - uP));
         const scalar maxCorrection = gMax(correction);
         label nNonTrivial = 0;
+        label nPatchFallback = 0;
+        scalar fallbackDiff = 0;
 
         forAll(correction, facei)
         {
-            if (correction[facei] > nonTrivialMin)
+            if (fallback[i][facei])
+            {
+                nPatchFallback++;
+                fallbackDiff = max(fallbackDiff, correction[facei]);
+            }
+            else if (correction[facei] > nonTrivialMin)
             {
                 nNonTrivial++;
             }
@@ -277,6 +347,34 @@ int main(int argc, char *argv[])
         Info<< nNonTrivial << " of " << p.size() << " faces have"
             << " |u_f - u_P| > " << nonTrivialMin << " (max |u_f - u_P| = "
             << maxCorrection << ")" << endl;
+
+        nFailed += check
+        (
+            "5. written value against u_P on the "
+          + Foam::name(nPatchFallback) + " corner-fallback face(s)",
+            fallbackDiff,
+            formulaTol
+        );
+    }
+
+    Info<< nl << "Corner-fallback faces (counted here): " << nFallbackFaces
+        << endl;
+
+    label nExpectedFallback = -1;
+
+    if (args.readIfPresent("fallbackFaces", nExpectedFallback))
+    {
+        if (nFallbackFaces == nExpectedFallback)
+        {
+            Info<< "    PASS: 6. ";
+        }
+        else
+        {
+            Info<< "    FAIL: 6. ";
+            nFailed++;
+        }
+        Info<< nFallbackFaces << " corner-fallback faces, expected "
+            << nExpectedFallback << endl;
     }
 
     Info<< nl;
