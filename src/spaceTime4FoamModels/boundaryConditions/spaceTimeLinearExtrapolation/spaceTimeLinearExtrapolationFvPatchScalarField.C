@@ -33,26 +33,41 @@ const
 
 
 bool
-Foam::spaceTimeLinearExtrapolationFvPatchScalarField::leastSquaresGradient()
+Foam::spaceTimeLinearExtrapolationFvPatchScalarField::gaussTypeGradient()
 const
 {
-    // Any word of the gradSchemes entry naming a least-squares scheme
-    // (leastSquares, LeastSquares, pointCellsLeastSquares, also inside a
-    // limited scheme such as cellLimited leastSquares 1), or fourth, which
-    // is built on the leastSquares vectors
+    // Allow-list: the first word is Gauss or iterativeGauss, or the first
+    // word is a limited scheme and the second word is Gauss or
+    // iterativeGauss. Anything else (leastSquares, fourth, a scheme from a
+    // user library, ...) is not Gauss-type.
     const ITstream& is = internalField().mesh().gradScheme(gradSchemeName_);
 
-    forAll(is, tokeni)
+    if (is.size() < 1 || !is[0].isWord())
     {
-        if (is[tokeni].isWord())
-        {
-            const word& w = is[tokeni].wordToken();
+        return false;
+    }
 
-            if (w.find("eastSquares") != std::string::npos || w == "fourth")
-            {
-                return true;
-            }
-        }
+    const word& first = is[0].wordToken();
+
+    if (first == "Gauss" || first == "iterativeGauss")
+    {
+        return true;
+    }
+
+    const bool limited =
+    (
+        first == "cellLimited"
+     || first.starts_with("cellLimited<")
+     || first == "cellMDLimited"
+     || first == "faceLimited"
+     || first == "faceMDLimited"
+    );
+
+    if (limited && is.size() >= 2 && is[1].isWord())
+    {
+        const word& second = is[1].wordToken();
+
+        return (second == "Gauss" || second == "iterativeGauss");
     }
 
     return false;
@@ -115,7 +130,7 @@ Foam::spaceTimeLinearExtrapolationFvPatchScalarField::multiFaces() const
         }
         else if (nMulti > 0)
         {
-            if (leastSquaresGradient())
+            if (!gaussTypeGradient())
             {
                 FatalErrorInFunction
                     << "Patch " << patch().name() << " of field "
@@ -125,12 +140,18 @@ Foam::spaceTimeLinearExtrapolationFvPatchScalarField::multiFaces() const
                     << " the gradient scheme " << gradSchemeName_ << " ("
                     << internalField().mesh().gradScheme(gradSchemeName_)
                       .toString()
-                    << ") is a least-squares scheme." << nl
+                    << ") is not a Gauss-type gradient scheme." << nl
                     << "    In such a cell the extrapolated face values"
-                    << " feed one gradient component back into itself with"
-                    << " a gain above 1 (1.5 on the left-diagonal triangle"
-                    << " meshes), so the face values diverge, possibly"
-                    << " without any sign in the residual." << nl
+                    << " feed one gradient component back into itself."
+                    << " Without the fallback only Gauss-type schemes"
+                    << " (Gauss, iterativeGauss, or a limited scheme"
+                    << " wrapping one of them) are allowed: they give a"
+                    << " neutral mode (gain exactly 1 for Gauss linear)."
+                    << " With leastSquares the gain"
+                    << " is 1.5 on the left-diagonal triangle meshes, so"
+                    << " the face values diverge, possibly without any sign"
+                    << " in the residual; other schemes have not been"
+                    << " analysed." << nl
                     << "    Set cornerFallback on (the default)."
                     << exit(FatalError);
             }
@@ -142,10 +163,14 @@ Foam::spaceTimeLinearExtrapolationFvPatchScalarField::multiFaces() const
                     << " faces are in cells with two or more "
                     << type() << " faces and cornerFallback is off." << nl
                     << "    In such a cell one gradient component is fed"
-                    << " back into itself. With Gauss linear the gain is 1,"
-                    << " a neutral mode, so the solution is not unique and"
-                    << " depends on the starting field (other schemes are"
-                    << " untested)." << nl
+                    << " back into itself. With the Gauss-type scheme "
+                    << gradSchemeName_ << " ("
+                    << internalField().mesh().gradScheme(gradSchemeName_)
+                      .toString()
+                    << ") this is a neutral mode (gain exactly 1 for"
+                    << " Gauss linear; iterativeGauss and cellLimited Gauss"
+                    << " were also seen to be neutral), so the solution is"
+                    << " not unique and depends on the starting field." << nl
                     << "    Set cornerFallback on (the default) for a"
                     << " unique solution." << endl;
             }

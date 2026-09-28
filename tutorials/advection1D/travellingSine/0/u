@@ -36,8 +36,9 @@ boundaryField
     // grad(u) of system/fvSchemes), use on tEnd and xRight instead:
     //     type            spaceTimeLinearExtrapolation;
     // Keep cornerFallback on (the default): the corner cell with two such
-    // faces uses u_f = u_P. With it off, leastSquares is a fatal error
-    // (unstable corner mode) and Gauss linear gives a non-unique solution.
+    // faces uses u_f = u_P. With it off, a gradient scheme that is not
+    // Gauss-type is a fatal error (leastSquares: unstable corner mode) and
+    // Gauss linear gives a non-unique solution.
     tEnd
     {
         type            zeroGradient;

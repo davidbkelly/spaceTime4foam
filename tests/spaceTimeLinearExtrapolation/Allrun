@@ -24,9 +24,12 @@
 #         where it equals u_P, and it differs from u_P on other faces (see
 #         the Test-spaceTimeLinearExtrapolation description for the checks
 #         and tolerances).
-#     Then checks the guard with cornerFallback off (one iteration each):
-#       - leastSquares: spaceTime4Foam must stop with a fatal error;
-#       - Gauss linear: spaceTime4Foam must print the neutral-mode warning.
+#     Then checks the guard with cornerFallback off (one iteration each, from
+#     the converged CC-2-EX case):
+#       - leastSquares, fourth and cellLimited leastSquares 1 (not Gauss-type):
+#         spaceTime4Foam must stop with a fatal error;
+#       - Gauss linear and cellLimited Gauss linear 1 (Gauss-type):
+#         spaceTime4Foam must print the neutral-mode warning.
 #     Exits with a non-zero status if a run fails or any check fails.
 #
 #------------------------------------------------------------------------------
@@ -124,16 +127,32 @@ do
     fi
 done
 
-# Guard with cornerFallback off, from a copy of each case
-for scheme in $schemes
+# Guard with cornerFallback off: one iteration from a copy of the converged
+# CC-2-EX case for each gradient scheme below. Gauss-type schemes (the
+# allow-list of the boundary condition) must give the neutral-mode warning;
+# all other schemes must stop with a fatal error.
+guardNames=(LS fourth cellLimitedLS Gauss cellLimitedGauss)
+guardSchemes=(
+    "leastSquares"
+    "fourth"
+    "cellLimited leastSquares 1"
+    "Gauss linear"
+    "cellLimited Gauss linear 1"
+)
+guardExpected=(fatal fatal fatal warning warning)
+
+for i in "${!guardNames[@]}"
 do
-    caseDir="run/${scheme}-noFallback"
+    name="${guardNames[$i]}"
+    guardScheme="${guardSchemes[$i]}"
+    caseDir="run/noFallback-$name"
     rm -rf "$caseDir"
     mkdir -p "$caseDir"
-    cp -r "run/$scheme"/0 "run/$scheme"/constant "run/$scheme"/system \
-        "$caseDir"/
+    cp -r run/CC-2-EX/0 run/CC-2-EX/constant run/CC-2-EX/system "$caseDir"/
     (
         cd "$caseDir" || exit 1
+        foamDictionary system/fvSchemes -entry "gradSchemes/grad(u)" \
+            -set "$guardScheme" > /dev/null 2>&1 || exit 1
         for patch in tEnd xRight
         do
             foamDictionary 0/u -entry "boundaryField/$patch/cornerFallback" \
@@ -146,29 +165,32 @@ do
     status=$?
 
     logFile="$caseDir/log.spaceTime4Foam"
-    case "$scheme" in
-    CC-2-LS-EX)
+    case "${guardExpected[$i]}" in
+    fatal)
         if [[ $status -ne 0 ]] && grep -q "FOAM FATAL ERROR" "$logFile" \
-            && grep -q "is a least-squares scheme" "$logFile"
+            && grep -q "is not a Gauss-type gradient scheme" "$logFile"
         then
-            echo "    PASS: $scheme without fallback stops with a fatal error"
+            echo "    PASS: '$guardScheme' without fallback stops with a" \
+                "fatal error"
         else
-            echo "    FAIL: $scheme without fallback: exit status $status," \
-                "no least-squares fatal error (see $logFile)"
+            echo "    FAIL: '$guardScheme' without fallback: exit status" \
+                "$status, no fatal error (see $logFile)"
             nFailed=$((nFailed + 1))
-            failedRuns="$failedRuns ${scheme}-noFallback"
+            failedRuns="$failedRuns noFallback-$name"
         fi
         ;;
     *)
+        # One iteration does not converge, so the exit status is not used
         if grep -q "neutral mode" "$logFile" \
             && ! grep -q "FOAM FATAL" "$logFile"
         then
-            echo "    PASS: $scheme without fallback prints the warning"
+            echo "    PASS: '$guardScheme' without fallback prints the" \
+                "warning"
         else
-            echo "    FAIL: $scheme without fallback: no neutral-mode" \
-                "warning (see $logFile)"
+            echo "    FAIL: '$guardScheme' without fallback: exit status" \
+                "$status, no warning or a fatal error (see $logFile)"
             nFailed=$((nFailed + 1))
-            failedRuns="$failedRuns ${scheme}-noFallback"
+            failedRuns="$failedRuns noFallback-$name"
         fi
         ;;
     esac

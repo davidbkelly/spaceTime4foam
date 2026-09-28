@@ -89,9 +89,15 @@ Description
     cancel). Upgrade path: take the corner cell's gradient from its upwind
     neighbour.
 
-    With cornerFallback off, a cell with two or more such faces is a fatal
-    error if the gradient scheme is a least-squares scheme, and gives a
-    warning (neutral mode, non-unique solution) otherwise.
+    With cornerFallback off, a cell with two or more such faces gives a
+    warning (neutral mode, non-unique solution) if the gradient scheme is
+    Gauss-type, and is a fatal error otherwise. Gauss-type (an allow-list)
+    means that the first word of the gradSchemes entry is Gauss or
+    iterativeGauss, or that the first word is one of the limited schemes
+    cellLimited, cellLimited<limiter>, cellMDLimited, faceLimited or
+    faceMDLimited and the second word is Gauss or iterativeGauss (e.g.
+    cellLimited Gauss linear 1). Any other scheme, including leastSquares
+    (gain 1.5) and schemes from user libraries, is stopped.
 
 Usage
     \table
@@ -154,8 +160,9 @@ class spaceTimeLinearExtrapolationFvPatchScalarField
         //- Return the default gradSchemeName: grad(<field name>)
         word defaultGradSchemeName() const;
 
-        //- Return true if the gradSchemes entry is a least-squares scheme
-        bool leastSquaresGradient() const;
+        //- Return true if the gradSchemes entry is a Gauss-type scheme
+        //  (see the allow-list in the class description)
+        bool gaussTypeGradient() const;
 
         //- Return the faces whose cell has two or more faces with this
         //  condition (over all patches of the field), finding them, and
