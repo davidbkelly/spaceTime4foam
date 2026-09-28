@@ -24,6 +24,8 @@
 #         left diagonals, N^2 with dx*dy < 0 and none with dx*dy > 0
 #     It then meshes the right-diagonal option in run/right/ and checks
 #     that it gives N^2 diagonals with dx*dy > 0 and none with dx*dy < 0.
+#     Finally it checks that Allmesh rejects bad perturbation arguments
+#     (an unknown third argument, a non-integer seed, a fifth argument).
 #     Exits with a non-zero status if any check fails.
 #
 #------------------------------------------------------------------------------
@@ -272,6 +274,24 @@ then
 else
     check "right diagonals: Allmesh (see run/right/log.Allmesh)" "no" "yes"
 fi
+
+# Bad perturbation arguments must be rejected before meshing
+echo
+echo "Checking that Allmesh rejects bad perturbation arguments"
+for badArgs in "$N left perturbd" "$N left perturbed seven" \
+    "$N left perturbed 7 extra"
+do
+    read -r -a args <<< "$badArgs"
+    if right/Allmesh "${args[@]}" > right/log.Allmesh.bad 2>&1
+    then
+        check "Allmesh $badArgs is rejected" "no" "yes"
+    elif grep -q "^Usage:" right/log.Allmesh.bad
+    then
+        check "Allmesh $badArgs is rejected" "yes" "yes"
+    else
+        check "Allmesh $badArgs is rejected with a usage message" "no" "yes"
+    fi
+done
 
 echo
 if [[ $nFailed -gt 0 ]]
