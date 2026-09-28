@@ -66,19 +66,38 @@ Description
     (e.g. in 0/u), the initial face value is the cell value, as for
     zeroGradient.
 
-    Known limitation: in a cell with two faces with this condition (the
-    top-right corner cell of the benchmark meshes) the cell balance does
-    not see one direction of grad(u)_P, while the face values feed back
-    into grad(u)_P. On the left-diagonal meshes with a = 1 this feedback
-    has a gain of 1.5 per iteration with leastSquares, so the corner face
-    values diverge while the residual converges; with Gauss linear the
-    gain is 1 and that component of the corner gradient keeps its initial
-    value (zero). Do not use it with leastSquares until this is resolved.
+    Corner fallback: in a cell with two or more faces with this condition
+    (counted over all patches; on the benchmark meshes only the top-right
+    outflow corner cell, with one tEnd and one xRight face) the
+    extrapolation is unstable or non-unique. In such a cell the gradient
+    component v with d_D . v = 0, where D is the remaining (third) face and
+    d_D = C_D - C_P, is fed back into itself through the extrapolated face
+    values:
+    - Gauss linear: the gain is exactly 1 (sum_f S_f d_f^T = V I), a
+      neutral mode. The discrete solution is not unique: the corner face
+      values (and for a != 1 the corner cell value and cells downstream of
+      it) depend on the starting field.
+    - leastSquares: the gain is 1.5 on the left-diagonal meshes, so the
+      mode grows from round-off. For a = 1 the corner cell balance does
+      not see this direction, so the residual converges while the corner
+      face values diverge.
+    With cornerFallback on (the default), the faces of such cells use the
+    zeroGradient value u_f = u_P (gradient 0). The number of faces using
+    the fallback is printed once per patch, on the first update. Cost: for
+    a != 1 the corner cell is O(h) wrong and then dominates Linf; for
+    a = 1 the corner cell value is unaffected (its two outflow corrections
+    cancel). Upgrade path: take the corner cell's gradient from its upwind
+    neighbour.
+
+    With cornerFallback off, a cell with two or more such faces is a fatal
+    error if the gradient scheme is a least-squares scheme, and gives a
+    warning (neutral mode, non-unique solution) otherwise.
 
 Usage
     \table
         Property       | Description                   | Required | Default
         gradSchemeName | gradSchemes entry for grad(u) | no       | grad(u)
+        cornerFallback | u_f = u_P in multi-EX cells   | no       | on
     \endtable
 
     The default gradSchemeName is grad(<field name>).
@@ -101,6 +120,7 @@ SourceFiles
 
 #include "fvPatchFields.H"
 #include "fixedGradientFvPatchFields.H"
+#include "Switch.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -120,11 +140,27 @@ class spaceTimeLinearExtrapolationFvPatchScalarField
         //- Name of the gradSchemes entry used for grad(u)
         word gradSchemeName_;
 
+        //- Use the zeroGradient value in cells with two or more faces with
+        //  this condition
+        Switch cornerFallback_;
+
+        //- Faces of this patch whose cell has two or more faces with this
+        //  condition, found on the first update
+        mutable autoPtr<boolList> multiFacePtr_;
+
 
     // Private Member Functions
 
         //- Return the default gradSchemeName: grad(<field name>)
         word defaultGradSchemeName() const;
+
+        //- Return true if the gradSchemes entry is a least-squares scheme
+        bool leastSquaresGradient() const;
+
+        //- Return the faces whose cell has two or more faces with this
+        //  condition (over all patches of the field), finding them, and
+        //  checking and reporting the corner fallback, on the first call
+        const boolList& multiFaces() const;
 
 
 public:
@@ -204,6 +240,21 @@ public:
             {
                 return gradSchemeName_;
             }
+
+            //- Return true if the corner fallback is on
+            bool cornerFallback() const
+            {
+                return cornerFallback_;
+            }
+
+
+        // Mapping functions
+
+            //- Map (and resize as needed) from self given a mapping object
+            virtual void autoMap(const fvPatchFieldMapper&);
+
+            //- Reverse map the given fvPatchField onto this fvPatchField
+            virtual void rmap(const fvPatchScalarField&, const labelList&);
 
 
         // Evaluation functions
