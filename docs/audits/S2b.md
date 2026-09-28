@@ -1,44 +1,57 @@
-# S2b audit: spaceTimeLinearExtrapolation and S2 minors
+# S2b audit: spaceTimeLinearExtrapolation, corner fallback, S2 minors
 
-Auditor: `foam-auditor` (read-only). Branch `step-one`, commits
-`f0a0f2d..945c5a0` (8 commits, not pushed).
+Auditor: `foam-auditor` (read-only). Branch `step-one`.
+
+- **First audit:** `f0a0f2d..945c5a0`, which adds the BC, its test,
+  CC-2-EX in `ccfvOrder` and the four S2 minor fixes.
+- **Developer decision:** `da7606f` records the corner fallback in
+  `CLAUDE.md` section 7.
+- **Re-audit:** `da7606f..01fb434`, which adds the fallback, the
+  guard, the extended test and CC-2-LS-EX in `ccfvOrder`.
 
 Environment: OpenFOAM v2412 (OpenFOAM.com), macOS, gmsh 4.15.2,
-shellcheck 0.11.0, markdownlint-cli 0.49.1.
+shellcheck 0.11.0, markdownlint-cli 0.49.1. All runs were made in
+`scratchpad/auditS2b/`. `git status` was clean at the end.
 
 ## Summary
 
 **Verdict: PASS.**
 
-- `spaceTimeLinearExtrapolation` implements the approved design and
-  `CLAUDE.md` section 7: a `fixedGradient` condition with
-  g = deltaCoeffs (grad(u)_P . (C_f - C_P)), so the face value uses the
-  full offset vector. I checked this against the v2412 source myself.
-- A clean rebuild has 0 compiler diagnostics. All 5 tests pass.
-  shellcheck reports nothing on all 26 tracked scripts, and
-  markdownlint reports nothing.
-- The face-value test fails when I plant a normal-only fault or a
-  sign fault.
-- `ccfvOrder` reproduces the builder's tables exactly, wall time aside.
-  CC-1, CC-2 and CC-2-LS are bitwise unchanged from S2.
-- All four S2 minor items are fixed.
-- I confirmed the builder's CC-2-LS-EX corner divergence, the gain of
-  1.5, the Gauss gain of 1 and the N = 64 figures (2.6e33 with a
-  residual of 8e-15). The top-right cell is the only cell with two EX
-  faces.
-- New finding: with Gauss linear the corner mode is exactly neutral.
-  The discrete CC-2-EX system therefore has a one-parameter family of
-  converged solutions.
-  - With a = 1 this family changes only the two corner face values,
-    never a cell value.
-  - With a = 0.5 it changes the corner cell value and 109 cells near
-    it.
-  - From the standard `0/u` start the choice is deterministic (zero),
-    which is why the benchmark numbers are reproducible.
-
-  This is not blocking for the a = 1 benchmark, but it must be
-  documented, and the developer must decide what to do before S5 (see
-  Should fix 1 and 2).
+- **BC.** `spaceTimeLinearExtrapolation` sets
+  u_f = u_P + grad(u)_P . (C_f - C_P) with the full offset vector. It
+  is a `fixedGradient` condition with g = deltaCoeffs (grad . d), and
+  deltaCoeffs cancels exactly in both `evaluate` and the matrix
+  coefficients (checked in the v2412 source).
+- **Corner mode (first audit).** In the top-right cell, the only cell
+  on `Left` meshes with two EX faces, the (1, -1) gradient component
+  feeds back into itself:
+  - with `leastSquares` the gain is exactly 1.5;
+  - with Gauss the gain is exactly 1, a neutral mode, so the discrete
+    solution is not unique.
+- **Fallback (re-audit).** I show the mechanism directly in the tables
+  below:
+  - LS without the fallback: g_w grows by 1.500 per iteration while
+    the residual stays near round-off;
+  - LS with the fallback, from the same start: g_w stays at 1e-29;
+  - a +/-0.01 corner perturbation is kept exactly without the fallback
+    (Gauss) and removed in one update with it (Gauss and LS).
+- **Rebuild and checks.** A clean rebuild has 0 compiler diagnostics
+  and all 5 tests pass. shellcheck finds nothing in all 26 tracked
+  scripts, and markdownlint finds nothing in all Markdown.
+- **Reproducibility.**
+  - CC-1, CC-2 and CC-2-LS are unchanged from S2.
+  - CC-2-EX is unchanged from `945c5a0` in every error norm and in the
+    iteration count. Only the final residual differs, in the 9th
+    digit.
+  - CC-2-LS-EX matches the builder's numbers exactly, wall time aside.
+- **New finding (Should fix 1).** CC-2-LS-EX keeps a first-order
+  outflow strip. Its Linf and L2 orders (1.00 and 1.56) come from the
+  outflow boundary, not the inflow boundary. `leastSquares`
+  extrapolation is not linearly exact there, so with LS the EX
+  condition brings almost no gain over zeroGradient.
+- **The 0.91 contraction of CC-2-LS-EX** is a local mode near the
+  outflow corner. It is independent of N and of the fallback, and at
+  N = 256 the run converges in 125 iterations. It is no risk for S5.
 
 ## Blocking
 
@@ -46,272 +59,358 @@ None.
 
 ## Should fix
 
-1. **The Gauss corner mode is neutral, so the solution is
-   non-unique.** The header describes this incompletely.
-   - Location:
-     `spaceTimeLinearExtrapolationFvPatchScalarField.H`, lines 69-76.
-   - Derivation (Gauss, any cell whose faces are all EX except one
-     face D): the Gauss identity sum_f S_f d_f^T = V I gives the
-     feedback F = I - S_D d_D^T / V, with d_D = C_D - C_P. Any
-     gradient component v with d_D . v = 0 satisfies F v = v. In the
-     top-right corner d_D is parallel to (1, 1), so the neutral
-     direction is (1, -1). This holds for any a. It also holds on
-     perturbed meshes, because the corner triangle has only boundary
-     nodes, which `perturbSpaceTimeMesh` does not move.
-   - Evidence, a = 1, N = 16. I restarted from the converged field
-     with the corner face values changed by +0.01 (`tEnd`) and -0.01
-     (`xRight`), which is pure (1, -1). The change is kept exactly for
-     200 iterations. The residual stays at 5.2e-15 and no cell value
-     changes (max |du| = 0).
-   - Evidence, a = 0.5, N = 16. The same restart converges to a
-     different solution with a residual of 4.6e-15. The corner cell
-     value moves from 0.064579 to 0.062623, and 109 cells differ from
-     the base run, by up to 1.2e-3 in the next cell (510).
-   - The header says "with Gauss linear ... that component ... keeps
-     its initial value (zero)". Its value is zero only when `0/u` has
-     no `gradient` entry, because the zeroGradient start gives an
-     exactly zero (1, -1) component. After a restart from a written
-     state the component takes whatever value was written. "The cell
-     balance does not see one direction" holds only for a = 1.
-   - Consequence for the tables: the CC-2-EX corner face value is
-     u_P + (the (1, 1) part only) . d. That gives the t = T error
-     sin(pi h) at the corner (TExtrap Linf 0.02454 at N = 128, order
-     1.000) and TExtrap L2 order 1.5.
-   - Fix: document that the solution is non-unique for Gauss, the
-     dependence on the start, and the a != 1 behaviour. Before S5 the
-     developer should choose a corner treatment, for example
-     zeroGradient on cells with two or more EX faces, or taking the
-     corner-cell gradient from the upwind neighbour. Do not tune it;
-     report the choice.
-2. **CC-2-LS-EX is required by `CLAUDE.md` section 6 but is not
-   delivered, and nothing stops a user from selecting it.**
-   - The exclusion is justified (see the assessment below), but it
-     changes the specification. It needs a developer decision and a
-     `CLAUDE.md` update.
-   - The tutorial `0/u` comment and the `fvSchemes` comment show how
-     to switch EX on, and `fvSchemes` lists `leastSquares` for
-     CC-2-LS. Neither says that EX with `leastSquares` is unsafe. A
-     run with that combination reports "Converged" while the corner
-     face values are wrong: at N = 16 check 2 differs by 0.100 at the
-     1e-10 stop.
-   - Fix: after the developer decides, either raise a
-     `FatalError`/`Warning` in `updateCoeffs` when a cell has two or
-     more faces with this condition and the gradient scheme is
-     `leastSquares`, or at least add a warning comment in `0/u`.
+1. **CC-2-LS-EX is first order in the outflow strip. The cause is
+   `leastSquares` at the EX faces, not the inflow boundary.**
+   - Evidence: max |e| by region at N = 128, from the `ccfvOrder`
+     fields:
+
+     | Scheme | tEnd strip | tStart strip | interior (> 3 h) |
+     | --- | --- | --- | --- |
+     | CC-2-LS-EX | 2.96e-2 | 2.56e-3 | 7.8e-4 |
+     | CC-2-LS | 2.86e-2 | 2.56e-3 | 6.9e-4 |
+     | CC-2-EX | 1.46e-3 | 4.7e-4 | 9.3e-4 |
+
+     `xRight` gives the same values by the x <-> t symmetry. The
+     CC-2-LS-EX tEnd-strip error is between 1.4e-2 and 3.0e-2 along
+     the whole strip, not only at the corner.
+   - Gradient error in the tEnd strip (N = 64, then N = 128):
+
+     | Scheme | tEnd strip | interior |
+     | --- | --- | --- |
+     | CC-2-LS-EX | 13.2, then 13.4 (O(1)) | 0.26, then 0.22 |
+     | CC-2-EX | 0.54, then 0.27 (O(h)) | 0.44, then 0.22 |
+
+     For comparison, |grad u| = 8.9.
+   - Mechanism: v2412 LS uses the normal-only boundary offset
+     d_n = `fvPatch::delta()`, while EX sets u_f - u_P = g . d with the
+     full d. For an exactly linear u, the LS fixed point is
+     grad u + M^-1 w_f d_n (d - d_n) . grad u, so it is not exact. The
+     tangential offset here is h/6.
+   - The builder's attribution of the CC-2-LS-EX boundary order of
+     about 1.0 to "the LS inflow inconsistency" is therefore incorrect
+     for Linf and L2.
+   - Fix: record this in `CLAUDE.md` section 7 and in the S6 guide.
+     CC-2-LS-EX shows the S2 boundary-strip signature (L1 2.1, L2 1.5,
+     Linf 1.0) because of the outflow faces. It is not a
+     second-order outflow variant. Do not tune it.
 
 ## Minor
 
-1. **Non-OpenFOAM.com branch.** The `#ifndef OPENFOAM_COM` branches use
-   `getOrDefault`, `os.writeEntry` and `writeEntry("value", os)`. These
-   are unguarded and untested on OpenFOAM.org and foam-extend. This is
-   the same item as S2 Minor 3 ("open, accepted"). `IOobjectOption`
-   and `writeValueEntry` also need a recent .com version.
-2. **Check 1 uses the patch's own `gradSchemeName()`.** A wrong
-   default name that happened to resolve to another existing scheme
-   would not be caught. Low risk: I tested the option separately (see
-   below).
-3. **Check 2 (1e-8) is the only guard against a non-converged corner
-   mode, and only `spaceTimeLinearExtrapolation` runs it (N = 16).**
-   `ccfvOrder` has no face-value check for CC-2-EX. For Gauss this is
-   acceptable, because I measured the distance from the 1e-10 stop to
-   the fixed point (see the assessment below). Keep this in mind when
-   perturbed meshes are added in S3 and S5.
+1. **The guard classifies schemes by name, not by type.**
+   - Location: `leastSquaresGradient()` in the `.C` file. It treats a
+     scheme as least-squares if any word contains "eastSquares" or
+     equals "fourth".
+   - I tested the stock v2412 scalar schemes with the fallback off and
+     a +/-0.01 corner restart, using a no-guard build of `945c5a0`:
 
-## Scope and git
+     | grad scheme | corner g_w over 30 iterations | guard |
+     | --- | --- | --- |
+     | `leastSquares` | x1.5 per iteration | Fatal |
+     | `pointCellsLeastSquares` | converges to 6.70 | Fatal |
+     | `edgeCellsLeastSquares` | converges to 6.70 | Fatal |
+     | `iterativeGauss linear 5` | kept (-0.4526) | Warning |
+     | `cellLimited Gauss linear 1` | kept (-0.4526) | Warning |
 
-- The 8 commits are focused: the BC (`822222d`), the test (`16a2400`),
-  `ccfvOrder` (`1aa0d19`), the tutorial (`141f383`) and one commit per
-  minor (`da2983c`, `b8f5408`, `4b1de4c`, `945c5a0`). All carry the
-  `Co-Authored-By` trailer.
-- There is no VCFV, `medianDualMesh` or `perturbSpaceTimeMesh` code,
-  and no change to `CLAUDE.md`, `docs/` or `.claude/`.
-- `git status` was clean at the end of the audit.
+     The exact g_w at the corner is 2 pi sqrt(2) = 8.89.
+   - For these schemes there is no false negative. The two stable LS
+     variants are false positives: stopping them is conservative, but
+     the message "gain above 1" is wrong for them.
+   - A scheme from a user library whose name does not match gets only
+     a Warning. `CLAUDE.md` says the guard stops "any configuration in
+     which the unstable corner coupling could occur".
+   - Recommendation: use an allow-list, so that only schemes whose
+     first word is `Gauss` or `iterativeGauss`, or a limited Gauss
+     scheme, give the Warning and all others are fatal. Alternatively,
+     check the type of the constructed `fv::gradScheme`. The heuristic
+     is acceptable in the meantime, because the fallback is on by
+     default.
+2. **Checks 5 and 6 do not test the BC's zeroing directly.**
+   - Planted faults, run on the `spaceTimeLinearExtrapolation` test
+     case (N = 16):
 
-## BC correctness
+     | Fault | Gauss | leastSquares |
+     | --- | --- | --- |
+     | faces flagged, g not zeroed | all checks pass | checks 1, 2, 5 FAIL |
+     | count per patch only | log 0; app passes | log 0; 1, 2, 5 FAIL |
+
+   - The per-patch fault is caught by the solver-log count in
+     `Allrun`, for both schemes.
+   - The no-zeroing fault is caught only by LS. With Gauss and a = 1
+     the corner gradient is zero by symmetry, so u_f = u_P anyway.
+   - Check 6 counts the faces from the mesh, independently of the BC,
+     so it tests the topology, not the BC. `-fallbackFaces 3` makes
+     it FAIL (exit 1), so it can fail.
+   - The coverage is adequate as long as the LS case stays in the test.
+     Cheap hardening: also require the written `gradient` entry to be
+     exactly 0 on the fallback faces. That discriminates for every
+     scheme.
+3. **Header wording.** The header says that without the fallback, for
+   a != 1, "the corner cell value and cells downstream of it" depend on
+   the start. The corner has no downstream cells. In my a = 0.5 test
+   the 109 cells that changed lie upstream and near the corner (cells
+   510, 509 and so on, decaying away from it), coupled through the
+   gradients. Fix: say "cells near it".
+4. **Non-OpenFOAM.com branch** (open from S2 Minor 3): `getOrDefault`,
+   `os.writeEntry` and `writeEntry("value", os)` are unguarded and
+   untested outside OpenFOAM.com.
+5. **Check 1 uses the patch's own `gradSchemeName()`** (first audit).
+   Low risk: the option was tested separately.
+
+## First-audit items and their resolution
+
+| First-audit item | Resolution |
+| --- | --- |
+| SF1 Gauss neutral mode, non-unique solution | Fallback; mechanism below |
+| SF2 LS-EX required but missing, unguarded | Added with fallback; guard |
+| M1 foam-extend/.org branch | Open (Minor 4) |
+| M2 check 1 uses its own scheme name | Open (Minor 5) |
+| M3 check 2 the only corner guard | Resolved by check 5 and LS case |
+| S2 minors (Allmesh, .geo, hasSource, blanks) | Fixed (verified) |
+
+Verification of the S2 minors:
+
+- `Allmesh 8 left extra` prints a usage message and exits 1.
+- gmsh with `-setstring diagonal foo` prints "diagonal must be left or
+  right, not foo" and exits 1. It still writes the `.msh` file, as the
+  `.geo` comment says.
+- A planted `source()` of 1e-9 with `hasSource()` false makes the new
+  check FAIL while "source against CD" still passes.
+- No `.C` or `.H` file has a run of 3 or more blank lines.
+
+## Mechanism: direct evidence
+
+These runs are on the N = 16 `Left` mesh with a = 1, with the tolerance
+set to 0 and every iteration written.
+
+- The corner gradient is `postProcess -func "grad(u)"` on each written
+  field. That is the gradient the BC uses in the next update.
+- g_w = (g_x - g_y)/sqrt(2) is the (1, -1) projection.
+- Runs without the fallback use a scratch library built from
+  `945c5a0`, which has no guard. Runs with the fallback use the
+  installed `01fb434` build.
+- In every run below, the corner cell value u_P stays between 1e-17 and
+  1e-14. The one exception is -2.9e-11 at iteration 200 without the
+  fallback.
+
+### leastSquares, standard start (`0/u`)
+
+| k | g_w, no fallback | u_f tEnd, no fb | g_w, fallback | u_f tEnd, fb |
+| --- | --- | --- | --- | --- |
+| 1 | 0 | -4.9e-17 | 0 | -4.9e-17 |
+| 50 | -3.0e-21 | -5.8e-15 | 8.1e-30 | -5.9e-15 |
+| 100 | -1.90e-12 | 2.19e-14 | 7.3e-30 | -6.0e-15 |
+| 120 | -6.315e-9 | 9.30e-11 | 7.3e-30 | -5.9e-15 |
+| 121 | -9.473e-9 | 1.40e-10 | 7.5e-30 | -6.0e-15 |
+| 150 | -1.2109e-3 | 1.78e-5 | 7.5e-30 | -5.9e-15 |
+| 151 | -1.8164e-3 | 2.68e-5 | 7.5e-30 | -5.9e-15 |
+| 175 | -30.58 | 0.450 | 7.3e-30 | -5.9e-15 |
+| 200 | -7.72e5 | 1.14e4 | 7.3e-30 | -5.8e-15 |
+
+- The ratios at 121/120 and 151/150 are 1.500. From 50 to 100 the
+  average ratio is 1.50.
+- Without the fallback, g_x = -g_y throughout, so the mode is pure
+  (1, -1). u_f on `xRight` is -u_f on `tEnd`.
+- The residual histories with and without the fallback are identical
+  to the printed digits (4.715e-6 at k = 60 and 1.380e-8 at k = 120).
+  The residual therefore does not see the mode at all.
+
+### leastSquares, restart with a corner perturbation of +/-0.01
+
+This starts from the converged state with the corner face values
+changed by +0.01 on `tEnd` and -0.01 on `xRight`.
+
+| k | g_x | g_y | g_w | u_f tEnd | u_f xRight |
+| --- | --- | --- | --- | --- | --- |
+| no fb 1 | -0.720 | 0.720 | -1.018 | 0.0150 | -0.0150 |
+| no fb 2 | -1.080 | 1.080 | -1.527 | 0.0225 | -0.0225 |
+| no fb 3 | -1.620 | 1.620 | -2.291 | 0.03375 | -0.03375 |
+| no fb 5 | -3.645 | 3.645 | -5.155 | 0.0759 | -0.0759 |
+| no fb 10 | -27.68 | 27.68 | -39.14 | 0.577 | -0.577 |
+| no fb 40 | -5.31e6 | 5.31e6 | -7.51e6 | 1.11e5 | -1.11e5 |
+| fb 1 | 4.2e-15 | 4.2e-15 | -1.6e-29 | -2.8e-15 | -2.8e-15 |
+| fb 40 | -2.2e-15 | -2.2e-15 | 8.1e-30 | -5.9e-15 | -5.9e-15 |
+
+Without the fallback the ratio is exactly 1.5 per iteration. With it,
+the perturbation is removed in the first update.
+
+### Gauss linear, restart with a corner perturbation of +/-0.01
+
+| k | g_x | g_y | g_w | u_f tEnd | u_f xRight | residual |
+| --- | --- | --- | --- | --- | --- | --- |
+| no fb 1 | -0.320 | 0.320 | -0.4526 | 0.0100 | -0.0100 | 5.24e-15 |
+| no fb 40 | -0.320 | 0.320 | -0.4526 | 0.0100 | -0.0100 | 5.24e-15 |
+| fb 1 | 1.3e-15 | 1.3e-15 | 0 | -2.3e-15 | -2.3e-15 | 5.24e-15 |
+| fb 40 | 1.3e-15 | 1.3e-15 | 0 | -2.3e-15 | -2.3e-15 | 5.24e-15 |
+
+- Without the fallback the values are identical at every iteration
+  from 1 to 40: the mode is neutral and invisible to the residual. The
+  expected Gauss value is g_w = -4 (0.01)/(sqrt(2) h) = -0.4525.
+- With the fallback the perturbation is removed in one update.
+- At a = 0.5 without the fallback (first audit), the same restart
+  converges to a different solution (residual 4.6e-15). The corner
+  u_P moves from 0.064579 to 0.062623, and 109 cells change.
+
+### Derivations (confirmed)
+
+- **Gauss.** sum_f S_f d_f^T = V I, so the EX feedback is
+  F = I - S_D d_D^T / V. Here d_D = -(h/6)(1, 1) is perpendicular to
+  (1, -1), so F (1, -1) = (1, -1): the gain is 1 for any a and on
+  perturbed meshes, because the corner triangle is fixed.
+- **leastSquares.** The LS matrix is 0.5 [[1, 1], [1, 1]] + I, with
+  eigenvalue 1 along (1, -1). The EX rows (9/h^2)(h/3) give 1.5 g_w,
+  which is (h/2)/(h/3).
+- **Other corners.** Parsing `owner` and `boundary` at N = 16 and 64,
+  only two cells have two boundary faces: cell 0 (`tStart` and
+  `xLeft`, both inflow) and the top-right cell. The fallback log and
+  check 6 report 2 faces at every N, up to N = 256.
+
+## Fallback implementation
+
+- **Detection.** `multiFaces()` counts faces of this type per cell over
+  all patches of the field, using `isA` and `faceCells`. It caches a
+  `boolList` for the patch the first time it is called.
+  - The cache is cleared in `autoMap` and `rmap`, and it is reset (not
+    copied) in the copy and mapping constructors.
+  - It is evaluated in `updateCoeffs` in both cases, fallback on and
+    off, so the guard always runs.
+- **Zeroing.** g is set to 0 on exactly the flagged faces, after the
+  full-vector gradient is formed. Check 5 gives 0 difference from u_P
+  on the fallback faces, and 15 of 16 faces per patch remain
+  non-trivial (check 4).
+- **Log.** There is one line per patch ("1 of N faces use the corner
+  fallback") and exactly 2 lines per run, with no repeats from clones.
+- **Switch.** `cornerFallback` is read with `getOrDefault<Switch>`
+  (default true) and written only when it differs. In my runs:
+  - `off` and `false` were read, written back as given, and gave the
+    warning;
+  - `yes` gave the fallback;
+  - the default was not written.
+- **Guard.** With the fallback off:
+  - `leastSquares` gives a `FatalError` naming the patch and the
+    scheme;
+  - Gauss gives the neutral-mode Warning.
+
+  The test really runs the solver for one iteration and requires a
+  non-zero exit, "FOAM FATAL ERROR" and "is a least-squares scheme" in
+  the log (confirmed in `run/CC-2-LS-EX-noFallback`).
+- **Header and `CLAUDE.md`.** They agree on the rule, the reason
+  (gain 1 and 1.5), the logging, the O(h) cost for a != 1 and the
+  upgrade path (the upwind-neighbour gradient). The cost is visible:
+  CC-2-EX at a = 0.5 has corner errors of 4.5e-3 (N = 64) and 2.7e-3
+  (N = 128), and at N = 128 the corner cell sets Linf. See Minor 3 for
+  the wording issue, and Minor 1 for the guard wording.
+
+## BC correctness (first audit, still valid)
 
 - **v2412 source** (`fixedGradientFvPatchField.C`):
-  - `evaluate` (line 191) is
-    `patchInternalField() + gradient_/patch().deltaCoeffs()`;
+  - `evaluate` (line 191) is `patchInternalField + gradient_/dc`;
   - `valueInternalCoeffs` is 1 (line 205);
-  - `valueBoundaryCoeffs` is `gradient()/deltaCoeffs()` (line 216).
-- **deltaCoeffs** (`fvPatch.C:190`) is the boundary field of the
-  mesh's `deltaCoeffs`, which is positive. With g = dc (grad . d), both
-  the Gauss convection coefficients
-  (`gaussConvectionScheme.C:107-108`) and `evaluate` give
-  u_P + grad . d, up to the round-off of (dc x)/dc. The full vector d =
-  `Cf() - Cn()` is used. `fvPatch::delta()` (line 160) would have kept
-  only the normal part.
-- **Update point.** The `fvMatrix` constructor calls
-  `updateCoeffs()` (`fvMatrix.C:396`) before `fvmDiv` reads the
-  coefficients. The gradient cache is keyed by name, and
-  `gradScheme.C:122` checks it with `upToDate`.
-- **Constructors.**
-  - The dictionary constructor uses `LAZY_READ`. Without a `gradient`
-    entry the face value is set to u_P and the gradient to zero; with
-    one, the base class evaluates. Base-class construction dispatches
-    to the base `updateCoeffs`, so this is safe.
-  - The mapping, copy and iF constructors copy `gradSchemeName_`.
-  - `autoMap` and `rmap` are inherited and map `gradient_`.
-- **write.** It writes `gradient`, then `gradSchemeName` if it is not
-  the default, then `value`. I checked this in a written file.
-- **gradSchemeName option.** With `gradEX Gauss linear` and
-  `gradSchemeName gradEX` on both patches, the run converges in 49
-  iterations. The written field is bitwise identical to the test run,
-  and the test passes.
-- **Registration.** `TypeName("spaceTimeLinearExtrapolation")` and
-  `makePatchTypeField` are present. `Make/files.openfoam` and
-  `Make/files.foamextend` both list the source.
+  - `valueBoundaryCoeffs` is `gradient/dc` (line 216).
+- **Offset.** The BC uses d = `Cf() - Cn()`. `fvPatch::delta()`
+  (line 160) would have kept only the normal part.
+- **Update point.** `fvMatrix.C:396` calls `updateCoeffs` before the
+  convection coefficients are read (`gaussConvectionScheme.C:107`).
+- **Read and write.** `LAZY_READ` means no `gradient` entry gives
+  u_f = u_P. `gradSchemeName` is read and written correctly, and a
+  named scheme gives a bitwise-identical field.
 - **Cache claim.** With `cache` removed, CC-2-EX (N = 16) and CC-2
-  (N = 64) are bitwise identical to the cached runs. Confirmed.
-- **Lag.** Check 2 measures (grad u^{n+1} - grad u^n) . d. Its value
-  of 6.45e-10 matches the per-iteration face change at the stop
-  (1.1e-9 at iteration 49). The distance to the true fixed point is
-  2.6e-9 on the faces at N = 16 and 8.3e-9 at N = 64. A tolerance of
-  1e-8 is therefore justified at N = 16, but is tight at N = 64.
-- **Planted faults** (scratch library builds, loaded first through
-  `DYLD_LIBRARY_PATH`):
+  (N = 64) are bitwise identical to the cached runs.
+- **Lag and tolerance.** Check 2 gives 6.4e-10 for Gauss and 7.2e-10
+  for LS. At the stop, the distance to the fixed point is 2.6e-9
+  (N = 16) and 8.3e-9 (N = 64). The 1e-8 tolerance is justified at
+  N = 16.
+- **Planted faults in the BC** (first audit):
+  - normal-only d gives check 1 = 5.36e-2, FAIL;
+  - a sign flip gives check 1 = 1.23e-1, FAIL.
 
-  | Fault | Check 1 | Check 2 | Exit |
-  | --- | --- | --- | --- |
-  | normal-only d (`patch().delta()`) | 5.36e-2 | 5.36e-2 | 1 |
-  | wrong sign of g | 1.23e-1 | 1.23e-1 | 1 |
+## Convergence claims
 
-  A wrong C_P is unlikely to go unnoticed: the test uses
-  `mesh.C()[faceCells]`, while the BC uses `patch().Cn()`.
-
-## Assessment: is the CC-2-EX (Gauss) convergence claim sound?
-
-It is sound for everything that iterates. The neutral component does
-not iterate at all.
-
-- I ran with tolerance 0 for 400 iterations, writing every iteration,
-  and tracked u_P and both face values in the corner cell, and the
-  maximum change of u:
-
-  | N | stop | max du at stop | residual at 100 | max du at 100 |
-  | --- | --- | --- | --- | --- |
-  | 16 | 49 | 2.9e-10 (faces 1.1e-9) | 5.2e-15 | 0 (faces 1e-27) |
-  | 64 | 46 | 1.1e-9 (faces 3.8e-9) | 6.3e-15 | 0 (faces 1e-29) |
-
-- The iteration reaches an exact fixed point. The stop iterate is
-  within 6.6e-10 (N = 16) and 2.3e-9 (N = 64) of it in the cells, and
-  within 2.6e-9 and 8.3e-9 on the faces. That is negligible against
-  errors of 3e-4 or more.
-- The corner face values stay at u_P (about 1e-15) throughout. The
-  exact values are -sin(pi h) on `tEnd` and +sin(pi h) on `xRight`.
-- From a non-zero start the neutral mode does not drift: +/-0.01 is
-  kept to all printed digits for 200 iterations (Should fix 1). It is
-  neutral, not unstable.
-- A perturbed internal field without a `gradient` entry cannot seed
-  the mode. With u_f = u_P on both EX faces, the (1, -1) component of
-  the Gauss gradient is exactly zero, and S_D . (1, -1) = 0.
-
-## Assessment: CC-2-LS-EX corner mode
-
-The builder's analysis is correct.
-
-- **Geometry** (top-right cell on Left meshes): the vertices are
-  (1-h, 1), (1, 1) and (1, 1-h), and C_P = (1-h/3, 1-h/3).
-  - d_tEnd = (-h/6, h/3) and d_xRight = (h/3, -h/6).
-  - The balance with a = 1 sees g . (d1 + d2) = g . (h/6, h/6) only.
-- **Gain with leastSquares.** v2412 uses the normal-only offsets
-  (0, h/3) and (h/3, 0), with weight 9/h^2, and the diagonal neighbour
-  offset -(h/3)(1, 1), with weight 9/(2h^2).
-  - The LS matrix is 0.5 [[1, 1], [1, 1]] + I, with eigenvalue 1 along
-    (1, -1).
-  - The EX face terms give (3/h)(g . d2, g . d1). Their (1, -1)
-    component is (3/h)(h/2) g_w = 1.5 g_w.
-  - The gain is therefore exactly 1.5, and it is (h/2)/(h/3) as the
-    builder states.
-- **Gain with Gauss:** exactly 1, from the identity in Should fix 1.
-- **Reproduction** (tolerance 0, from the standard start):
-  - N = 16: the mode is seeded by round-off and grows by 1.5 per
-    iteration: 2.2e-14 at iteration 100, 1.8e-5 at 150, 1.1e4 at 200
-    and 1.9e39 at 400. The residual falls below 1e-10 at iteration
-    173 and returns to 0.199 by iteration 400.
-  - N = 64: 2.5e-11 at 150, 1.6e-2 at 200 and 2.62e33 at 400, with a
-    residual of 7.9e-15 at 400. This matches the builder.
-  - A restart from the Gauss solution with +/-0.01 gives 0.0225,
-    0.03375, 0.0506 and so on: a ratio of 1.5.
-- **With the default 1e-10 stop:**
-  - N = 16 converges in 173 iterations and check 2 fails with 0.100;
-  - N = 64 converges in 152 iterations and all checks pass, because
-    the stop comes before the round-off seed has grown. The stop hides
-    the mode.
-- **Other corners.** Parsing `owner` and `boundary` at N = 16 and 64,
-  exactly two cells have two boundary faces:
-  - cell 0: `tStart` and `xLeft`, both inflow;
-  - the top-right cell: `tEnd` and `xRight`.
-
-  The top-right cell is the only cell with two EX faces. On Right
-  meshes no cell has two EX faces.
-- **Open for S3/S5.** On perturbed meshes the corner triangle does not
-  change, but the diagonal neighbour's centroid does. The LS gain then
-  changes (not measured; `perturbSpaceTimeMesh` does not exist yet).
-  The Gauss gain stays exactly 1.
-- **Recommendation.** Excluding LS-EX is correct. It is not a tolerance
-  problem: the fixed-point map is unstable in a direction that the
-  residual cannot see. A fix needs a different corner treatment
-  (Should fix 1), not relaxation.
+- **CC-2-EX (Gauss).** With the tolerance set to 0, the iteration
+  reaches an exact fixed point: max |du| is 0 at iteration 100 for
+  N = 16 and 64. At the 1e-10 stop the iterate is within 2.3e-9 of the
+  fixed point in the cells. The residual criterion is therefore sound
+  for everything that iterates, and the fallback removes the only
+  component that did not iterate.
+- **CC-2-LS-EX with the fallback.** The worst late-iteration residual
+  ratio is 0.906, 0.910, 0.911, 0.911, 0.911 and 0.910 for
+  N = 8, 16, 32, 64, 128 and 256.
+  - The iterations fall with N: 174, 173, 164, 152, 139, and 125 at
+    N = 256 (converged, loop wall time 0.84 s).
+  - The slowest mode is local:
+    - max |u^{k+1} - u^k| lies in the same cell relative to the corner
+      at N = 16 and 64, at (0.67 h, 1.67 h), with a ratio of 0.90 in
+      both;
+    - its shape alternates in sign along the `tEnd` and `xRight`
+      strips and decays within about 4 cells of the corner.
+  - It is not caused by the fallback: the residual history without the
+    fallback is identical.
+  - It is benign. It is a mesh-scale mode with a fixed factor, so the
+    work per decade of residual is constant in N. No risk at N = 256.
+  - Compare CC-2-EX, whose worst ratio grows with N: 0.70 at N = 16
+    and 0.82 at N = 128. This is the S2 deferred-correction behaviour.
 
 ## Reproducibility
 
-- **Rerun against the builder.** After the clean rebuild, the
-  `ccfvOrder` tables were compared with the builder's copies.
-  `ccfvOrderOrders.dat` is identical. `ccfvOrder.dat` is identical
-  apart from column 8 (wall time).
-- **Against S2.** The CC-1, CC-2 and CC-2-LS rows and orders are
-  identical to the S2 re-audit tables.
-- **CC-2-EX claims** (all confirmed):
-  - iterations 50, 49, 46, 46 and 61;
-  - orders at 64 to 128: L1, L2 and Linf of 2.28, 2.25 and 2.21 (all
-    cells), 2.28, 2.24 and 2.21 (interior) and 2.13, 2.16 and 2.24
-    (boundary);
-  - at N = 128, L2_all is 4.29e-4 against 1.71e-3 for CC-2 (4.0
-    times lower) and Linf_all is 1.46e-3 against 2.94e-2 (20.1 times
-    lower);
-  - TExtrap Linf is 0.02454 = sin(pi/128), and TCell is order 1.02.
+- **Comparisons**, with the wall-time column removed:
+  - The `ccfvOrder` rerun after the clean rebuild at `01fb434` matches
+    my `945c5a0` rerun for CC-1, CC-2, CC-2-LS and CC-2-EX in every
+    error norm and iteration count.
+  - For CC-2-EX the final residual differs in the 9th digit
+    (9.255515519e-11 against 9.255515582e-11 at N = 8), because the
+    corner face values changed at round-off level.
+  - `ccfvOrderOrders.dat` is identical for these schemes.
+  - CC-1, CC-2 and CC-2-LS equal the S2 re-audit tables.
+- **CC-2-LS-EX** equals the builder's log in every column except wall
+  time.
+  - Iterations: 174, 173, 164, 152 and 139.
+  - Orders at 64 to 128: L1, L2 and Linf of 2.095, 1.559 and 1.005
+    (all cells), and 1.009, 1.005 and 1.014 (boundary).
 
-## S2 minor items
+## Scope, git and style
 
-| Item | Evidence | Status |
-| --- | --- | --- |
-| `Allmesh 8 left extra` | usage message, exit 1 | Fixed |
-| gmsh `diagonal foo` | "... not foo" error, exit 1 | Fixed |
-| hasSource check | source 1e-9: new check FAILs | Fixed |
-| blank lines | no run of 3 or more blank lines in any .C/.H | Fixed |
-
-gmsh still writes `foo.msh` after the error, as the new `.geo`
-comment states.
-
-## Style
-
-- All 19 tracked `.C` and `.H` files have the same 16-line licence
-  header (one md5).
-- The BC and the test follow OpenFOAM layout. The header documents the
-  implementation, the lag, the cache and the corner limitation (but
-  see Should fix 1).
-- shellcheck (`.shellcheckrc` disables SC1091 only), on all 26 tracked
-  scripts with a shebang (26 files have mode 100755): exit 0, no
+- The 6 re-audit commits are focused and carry the trailer.
+  `b046098` is the first-round report and `da7606f` is the developer's
+  `CLAUDE.md` decision. There is no VCFV or S3 code.
+- **Build.** `./Allwclean` and `./Allwmake` exit 0 with 0 lines
+  matching `warning:` or `error:`.
+- **Tests.** `./Alltest`: all 5 pass, exit 0. In
+  `spaceTimeLinearExtrapolation`, checks 1-6 pass for CC-2-EX and
+  CC-2-LS-EX, both guard checks pass, and the log counts are 2 and 2.
+- **Licence header.** The same 16-line header in all 19 tracked `.C`
+  and `.H` files (one md5).
+- **Registration.** `TypeName` and `makePatchTypeField` are present,
+  and both `Make/files*` lists include the BC.
+- **shellcheck.** `.shellcheckrc` disables SC1091 only. On all 26
+  tracked scripts with a shebang (all 26 have mode 100755): exit 0, no
   output.
-- markdownlint on all tracked `.md` files: exit 0, no output.
+- **markdownlint** on all tracked `.md` files: exit 0, no output.
+
+## Recommendations to the developer
+
+- Keep the fallback. It removes the only non-iterating or unstable
+  component, and for a = 1 it changes no cell value.
+- Report CC-2-LS-EX in S5 as an LS variant with a first-order outflow
+  strip (Should fix 1), not as a fix for the outflow strip. CC-2-EX
+  (Gauss) is the variant that removes the boundary-strip signature.
+- Before any a != 1 case, apply the upgrade path: take the corner
+  gradient from the upwind neighbour.
 
 ## Commands run
 
 ```bash
-git log/diff/show f0a0f2d..945c5a0; git status   # clean at end
-./Allwclean; ./Allwmake     # exit 0; 0 lines with "warning:"/"error:"
-./Alltest                   # 5 PASS, exit 0
-diff ccfvOrder*.dat <builder copies>    # identical except wallTime
-diff ccfvOrder*.dat <S2 copies>         # CC-1/2/2-LS identical
+git log/diff/show f0a0f2d..945c5a0 and 945c5a0..01fb434; git status
+./Allwclean; ./Allwmake            # twice (945c5a0, 01fb434): 0 diags
+./Alltest                          # 5 PASS both times
+diff ccfvOrder*.dat <945c5a0 rerun, S2 tables, builder log>
 shellcheck <26 scripts>; markdownlint $(git ls-files '*.md')
-# read in $FOAM_SRC: fixedGradientFvPatchField.C, fvPatch.C,
-#   fvMatrix.C, gaussConvectionScheme.C, gradScheme.C
+# $FOAM_SRC read: fixedGradientFvPatchField.C, fvPatch.C, fvMatrix.C,
+#   gaussConvectionScheme.C, gradScheme.C
 # scratch only (scratchpad/auditS2b):
-#   CC-2-EX Gauss N = 16, 64: 400 iterations, tolerance 0, tracked
-#   CC-2-LS-EX N = 16, 64: 400 iterations, tolerance 0, and at 1e-10
-#   neutral-mode restarts (+/-0.01) for Gauss and LS, a = 1 and 0.5
-#   planted faults: normal-only d, sign of g, source 1e-9
-#   gradSchemeName option; cache removed; two-boundary-face cell count
-#   Allmesh extra argument; gmsh -setstring diagonal foo
+#   scratch lib from git archive 945c5a0 (no guard) for no-fallback runs
+#   mech/: LS std start, LS and Gauss +/-0.01 restarts, fb and no fb,
+#     grad(u) per iteration via postProcess; other grad schemes
+#   fault libs: normal-only d, sign, source 1e-9 (first audit);
+#     g not zeroed, per-patch count (re-audit); -fallbackFaces 3
+#   error and gradient by region (N = 64, 128); a = 0.5 with fallback
+#   LS-EX tolerance 0 at N = 16 and 64; LS-EX N = 256; switch values
 ```

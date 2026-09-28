@@ -127,7 +127,11 @@ Boundary treatment (primary runs): data only on inflow boundaries.
   variant, run on both mesh families.
 - **CC-2-EX** and **CC-2-LS-EX:** as CC-2 and CC-2-LS, but with the
   `spaceTimeLinearExtrapolation` outflow condition (section 7) on `tEnd`
-  and `xRight` instead of `zeroGradient`. Added before S5, not in S2.
+  and `xRight` instead of `zeroGradient`. Added in S2b, both with the
+  corner fallback (section 7). CC-2-EX (Gauss) removes the boundary-strip
+  signature. CC-2-LS-EX is kept but is **not** a second-order outflow
+  variant: it retains the first-order outflow strip (section 7), and
+  must be reported as such.
 - **VC-1:** VCFV, upwind flux without reconstruction. Theoretical order 1.
 - **VC-2:** VCFV, upwind flux with linear reconstruction
   `uL = uj + 0.5 grad(u)_j . (xk - xj)`. Theoretical order 2.
@@ -251,6 +255,19 @@ a != 1, which would then dominate Linf; for a = 1 the corner cell value
 is unaffected. Upgrade path for a != 1 (for example a multi-rate
 benchmark): take the corner cell's gradient from its upwind neighbour.
 
+With the fallback, CC-2-LS-EX converges stably (contraction about 0.91,
+independent of N, from a local mode near the outflow corner), but it is
+still first order in the outflow strip (S2b audit). Cause: v2412
+`leastSquares` uses the normal-only boundary offset `fvPatch::delta()`,
+while the extrapolation uses the full offset, so the combination is not
+linearly exact and the tEnd/xRight-strip gradient error is O(1). This is
+an outflow effect, distinct from the `leastSquares` inflow inconsistency
+above. Do not tune it; report it.
+
+Open (S2b audit, minor): the `leastSquares` guard detects schemes by
+name; an allow-list of Gauss-type schemes (or a type check) would be
+more robust.
+
 The `cellCentred` source term: until a tested source implementation
 exists, `cellCentred` must stop with a fatal error if the selected
 `analyticalSolution` has a non-zero source.
@@ -348,7 +365,10 @@ Required sections:
     t = T value does and does not measure. Also the outflow-corner
     mode of `spaceTimeLinearExtrapolation` (neutral with Gauss, gain
     1.5 with leastSquares), the corner fallback, its O(h) cost when
-    a != 1, and the upwind-neighbour-gradient upgrade path.
+    a != 1, and the upwind-neighbour-gradient upgrade path; and why
+    CC-2-LS-EX keeps a first-order outflow strip (normal-only
+    `leastSquares` boundary offset against full-vector extrapolation)
+    while CC-2-EX does not.
 11. When each approach is likely to be useful, and recommended next steps.
 12. References.
 
