@@ -17,12 +17,18 @@
 #         (x or t equal to 0 or 1) are unchanged bit for bit; z is
 #         unchanged; the front and back points of every pair have the same
 #         perturbed (x, t) bit for bit (so the same displacement);
+#       - dx and dt are independent: fewer than 1% of the interior front
+#         points have dx = +/-dt (to 1e-9 h), and the sample correlation of
+#         dx and dt is below 0.1 in magnitude;
 #       - the log contains the seed and maxFraction used;
 #       - checkMesh reports "Mesh OK." (Allmesh);
 #       - Test-medianDualMesh -domainArea 1 passes on the perturbed mesh
 #         (total area unchanged, and all the geometry identities);
 #       - the same seed gives an identical points file (checksum), and a
 #         different seed (Allmesh 32 left perturbed 7) a different one;
+#       - stored references on Left N = 8 with the dictionary seed: the
+#         first 5 interior (point, dx, dt) and the points checksum must equal
+#         the values stored in this script (see the note there);
 #       - -maxFraction 0.1 -seed 3: the log shows these values and
 #         max |dx|, |dt| <= 0.1 h;
 #       - -maxFraction 0.6: a triangle is inverted, so the utility must stop
@@ -147,6 +153,65 @@ function compare()
     ' "$1" "$2"
 }
 
+# displacements <reference points> <perturbed points>
+# Print "pointLabel dx dt" (17 digits) for every interior front (z = 0)
+# point, in mesh point order
+function displacements()
+{
+    awk '
+        FNR == 1 { state = 0; n = 0; file++ }
+        state == 0 && /^[0-9]+$/ { size = $1; state = 1; next }
+        state == 1 && /^\($/ { state = 2; next }
+        state == 2 && n < size {
+            line = $0
+            gsub(/[()]/, "", line)
+            split(line, c, " ")
+            if (file == 1)
+            {
+                x0[n] = c[1]; y0[n] = c[2]; z0[n] = c[3]
+            }
+            else
+            {
+                x1[n] = c[1]; y1[n] = c[2]
+            }
+            n++
+        }
+        END {
+            for (i = 0; i < size; i++)
+            {
+                onBoundary = (x0[i] + 0 == 0 || x0[i] + 0 == 1 \
+                    || y0[i] + 0 == 0 || y0[i] + 0 == 1)
+                if (!onBoundary && z0[i] + 0 == 0)
+                {
+                    printf "%d %.17g %.17g\n", i, x1[i] - x0[i], y1[i] - y0[i]
+                }
+            }
+        }
+    ' "$1" "$2"
+}
+
+# independence <displacements file> <h>
+# Print: number of points with |dx - dt| or |dx + dt| <= 1e-9 h, the
+# number of points, and the sample correlation of dx and dt
+function independence()
+{
+    awk -v h="$2" '
+        {
+            dx = $2; dt = $3
+            d1 = dx - dt; if (d1 < 0) { d1 = -d1 }
+            d2 = dx + dt; if (d2 < 0) { d2 = -d2 }
+            if (d1 <= 1e-9*h || d2 <= 1e-9*h) { nEqual++ }
+            n++; sx += dx; st += dt; sxx += dx*dx; stt += dt*dt; sxt += dx*dt
+        }
+        END {
+            cov = sxt/n - (sx/n)*(st/n)
+            vx = sxx/n - (sx/n)^2
+            vt = stt/n - (st/n)^2
+            printf "%d %d %.4f\n", nEqual + 0, n, cov/sqrt(vx*vt)
+        }
+    ' "$1"
+}
+
 # le <a> <b>: 1 if a <= b, else 0 (floating point)
 function le()
 {
@@ -210,6 +275,20 @@ check "Test-medianDualMesh -domainArea 1 (total area and identities)" \
     "$?" 0
 grep "sum V_j - domainArea" run/seedA/log.Test-medianDualMesh
 
+# Independence of dx and dt (a fault such as dt = dx passes the bounds)
+displacements run/reference/$points run/seedA/$points > run/seedA/displacements
+read -r nEqual nPoints corr \
+    <<< "$(independence run/seedA/displacements "$(awk -v N="$N" \
+        'BEGIN { print 1.0/N }')")"
+echo "    interior front points: $nPoints, with dx = +/-dt (to 1e-9 h):" \
+    "$nEqual, correlation of dx and dt: $corr"
+check "interior front points, (N - 1)^2" "$nPoints" "$nInterior"
+check "points with dx = +/-dt below 1% of the points" \
+    "$(awk -v a="$nEqual" -v n="$nPoints" 'BEGIN { print (a < 0.01*n) }')" 1
+check "|correlation of dx and dt| < 0.1 (about 3 standard errors)" \
+    "$(awk -v r="$corr" 'BEGIN { print (r < 0.1 && r > -0.1) }')" 1
+
+
 
 # Reproducibility
 
@@ -226,6 +305,34 @@ check "different seed, different points" \
     "$([ "$sumA" != "$sumB" ] && echo yes)" yes
 check "seed 7 in the log" \
     "$(grep -c "^ *seed *7$" run/seedB/log.perturbSpaceTimeMesh)" 1
+
+
+# Stored references: Left N = 8, seed 12345, maxFraction 0.2 (the tutorial
+# dictionary), made with gmsh 4.15.2 and OpenFOAM v2412 on macOS (Apple
+# clang, libc++). OpenFOAM's Random maps Rand48 through
+# std::uniform_real_distribution, whose algorithm depends on the C++
+# standard library, so another toolchain (or another gmsh version) may
+# change these values: then regenerate them deliberately and say so.
+
+echo
+echo "Stored references (Left N = 8, seed 12345)"
+newCase reference8 8 left || exit 1
+newCase seedA8 8 left perturbed || exit 1
+storedChecksum=58859dc6f9615732d85cb054cf790fdf108acedc
+storedDisplacements="\
+64 0.020959153427400817 0.011238986002440582
+65 0.020324117963486321 0.017894046645331119
+66 -0.015291613610107807 0.0012187760482917365
+67 0.022737873442462558 -0.024783023397275616
+68 -0.01246035505592144 0.0017245388043878318"
+displacements run/reference8/$points run/seedA8/$points \
+    > run/seedA8/displacements
+check "first 5 interior (point, dx, dt) equal the stored values" \
+    "$(head -5 run/seedA8/displacements | tr '\n' ';')" \
+    "$(echo "$storedDisplacements" | tr '\n' ';')"
+check "points checksum equals the stored value" \
+    "$(shasum run/seedA8/$points | awk '{print $1}')" "$storedChecksum"
+
 
 
 # Command-line overrides
