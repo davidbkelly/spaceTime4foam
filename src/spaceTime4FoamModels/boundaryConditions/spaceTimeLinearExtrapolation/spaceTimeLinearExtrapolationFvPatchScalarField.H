@@ -75,8 +75,8 @@ Description
     values:
     - Gauss linear: the gain is exactly 1 (sum_f S_f d_f^T = V I), a
       neutral mode. The discrete solution is not unique: the corner face
-      values (and for a != 1 the corner cell value and cells downstream of
-      it) depend on the starting field.
+      values (and for a != 1 the corner cell value and cells near it)
+      depend on the starting field.
     - leastSquares: the gain is 1.5 on the left-diagonal meshes, so the
       mode grows from round-off. For a = 1 the corner cell balance does
       not see this direction, so the residual converges while the corner
@@ -95,9 +95,11 @@ Description
     means that the first word of the gradSchemes entry is Gauss or
     iterativeGauss, or that the first word is one of the limited schemes
     cellLimited, cellLimited<limiter>, cellMDLimited, faceLimited or
-    faceMDLimited and the second word is Gauss or iterativeGauss (e.g.
-    cellLimited Gauss linear 1). Any other scheme, including leastSquares
-    (gain 1.5) and schemes from user libraries, is stopped.
+    faceMDLimited and the next word after it (skipping the limiter's
+    numeric arguments) is Gauss or iterativeGauss, e.g. cellLimited Gauss
+    linear 1 or cellLimited<cubic> 1.5 Gauss linear 1. Any other scheme,
+    including leastSquares (gain 1.5), nested limited schemes and schemes
+    from user libraries, is stopped.
 
 Usage
     \table
