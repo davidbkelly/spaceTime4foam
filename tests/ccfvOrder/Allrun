@@ -15,7 +15,13 @@
 #       CC-1     div(phiST,u) Gauss upwind
 #       CC-2     div(phiST,u) Gauss linearUpwind grad(u), grad(u) Gauss linear
 #       CC-2-LS  as CC-2 with grad(u) leastSquares
+#       CC-2-EX  as CC-2 with spaceTimeLinearExtrapolation instead of
+#                zeroGradient on the outflow patches tEnd and xRight
 #     using the travellingSine tutorial case.
+#
+#     CC-2-LS-EX (CC-2-LS with spaceTimeLinearExtrapolation) is not run:
+#     the corner face values do not converge (see
+#     tests/spaceTimeLinearExtrapolation/Allrun).
 #
 #     REPORT ONLY: the orders are not checked against any window (CLAUDE.md
 #     section 6). The test fails only if a run fails: spaceTime4Foam does
@@ -35,7 +41,7 @@ cd "${0%/*}" || exit  # Run from this directory
 
 tutorialDir=../../tutorials/advection1D/travellingSine
 meshSizes="8 16 32 64 128"
-schemes="CC-1 CC-2 CC-2-LS"
+schemes="CC-1 CC-2 CC-2-LS CC-2-EX"
 
 # divScheme <scheme>, gradScheme <scheme>: the fvSchemes entries
 function divScheme()
@@ -51,6 +57,15 @@ function gradScheme()
     case "$1" in
     CC-2-LS) echo "leastSquares" ;;
     *) echo "Gauss linear" ;;
+    esac
+}
+
+# outflowType <scheme>: the boundary condition type on tEnd and xRight
+function outflowType()
+{
+    case "$1" in
+    *-EX) echo "spaceTimeLinearExtrapolation" ;;
+    *) echo "zeroGradient" ;;
     esac
 }
 
@@ -104,6 +119,12 @@ do
                 -set "$(divScheme "$scheme")" > /dev/null 2>&1 || exit 1
             foamDictionary system/fvSchemes -entry "gradSchemes/grad(u)" \
                 -set "$(gradScheme "$scheme")" > /dev/null 2>&1 || exit 1
+            for patch in tEnd xRight
+            do
+                foamDictionary 0/u -entry "boundaryField/$patch/type" \
+                    -set "$(outflowType "$scheme")" > /dev/null 2>&1 \
+                    || exit 1
+            done
             runApplication spaceTime4Foam || exit 1
             runApplication spaceTimeErrors || exit 1
         )
