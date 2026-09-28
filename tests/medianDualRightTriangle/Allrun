@@ -1,0 +1,71 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/medianDualRightTriangle/Allrun
+#
+# Description
+#     Geometry unit test (CLAUDE.md section 6, verification test 2). Imports
+#     the hand-written MSH 2.2 mesh rightTriangle.msh with gmshToFoam: one
+#     triangle with nodes (0, 0), (1, 0) and (0, 1), extruded one layer in z
+#     into a prism, with the side patches tStart (t = 0), xLeft (x = 0) and
+#     diagonal (the hypotenuse), and frontAndBack (set to empty). Then runs
+#     Test-medianDualMesh -rightTriangle -domainArea 0.5, which checks
+#       - V = 1/6 at all three nodes;
+#       - n = (1/3, 1/6) from (0, 0) to (1, 0), (1/6, 1/3) from (0, 0) to
+#         (0, 1) and (-1/6, 1/6) from (1, 0) to (0, 1), to 10 eps;
+#       - closure at every node, and the other checks of
+#         Test-medianDualMesh (see its description).
+#     Exits with a non-zero status if a run or a check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+if ! command -v Test-medianDualMesh > /dev/null 2>&1
+then
+    echo "Test-medianDualMesh not found: run ./Allwmake first"
+    exit 1
+fi
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+
+rm -rf run
+mkdir run
+cp -r "$tutorialDir"/system run/
+cp rightTriangle.msh run/
+
+cd run || exit 1
+
+runApplication gmshToFoam rightTriangle.msh || exit 1
+
+# gmshToFoam makes every patch of type patch: frontAndBack must be empty
+runApplication foamDictionary constant/polyMesh/boundary \
+    -entry entry0/frontAndBack/type -set empty || exit 1
+
+runApplication checkMesh || exit 1
+if ! grep -q "^Mesh OK." log.checkMesh
+then
+    echo "FAIL: checkMesh did not report 'Mesh OK.' (see run/log.checkMesh)"
+    exit 1
+fi
+
+runApplication Test-medianDualMesh -rightTriangle -domainArea 0.5
+status=$?
+
+sed -n '/^Median-dual mesh/,$p' log.Test-medianDualMesh
+
+if [[ $status -ne 0 ]]
+then
+    echo "medianDualRightTriangle: FAILED (see run/log.Test-medianDualMesh)"
+    exit 1
+fi
+
+echo "medianDualRightTriangle: all checks passed"
+
+#------------------------------------------------------------------------------
