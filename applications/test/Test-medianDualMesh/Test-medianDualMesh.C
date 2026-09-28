@@ -53,7 +53,15 @@ Description
      9. LSQ exactness: for u = c0 + c . x with c0 = 0.3, c = (1.7, -2.3),
         the gradient equals c at every node, reported for interior,
         boundary and corner nodes (boundary nodes on two patches). Scale:
-        |c| + max|u|/(shortest edge at the node).
+        |c| (absolute tolerance 1e3 eps |c|, about 6e-13; the observed
+        errors, from rounding u_k - u_j, are about eps max|u|/h).
+    9b. LSQ weighting: for the nonlinear field
+        u = sin(3x) cos(2t) + x^2 t, the gradient equals the unweighted
+        least-squares gradient solved here from the 2 x 2 normal equations
+        of each node's edge neighbours (Cramer's rule), independently of
+        the precomputed coefficients. Linear data cannot detect a weighted
+        fit; this can. Scale: the largest slope |u_k - u_j|/|p_k - p_j| at
+        the node.
     The valence histogram (number of nodes per number of edge neighbours)
     is printed for interior and boundary nodes.
 
@@ -609,6 +617,10 @@ int main(int argc, char *argv[])
         const vectorField grad(dual.gradient(u));
         const scalar maxU = max(mag(u));
 
+        // Absolute scale |c|: the error comes from rounding u_k - u_j
+        // (about eps max|u|/h, 1e-14 at h = 1/32)
+        const scalar tolLinear = tolFactor*mag(c);
+
         // Corner nodes: boundary nodes with boundary edges on two patches
         labelList firstPatch(dual.nNodes(), -1);
         boolList isCorner(dual.nNodes(), false);
@@ -636,16 +648,14 @@ int main(int argc, char *argv[])
         scalar maxErrInterior = 0;
         scalar maxErrBoundary = 0;
         scalar maxErrCorner = 0;
-        scalar maxRelErr = 0;
+        scalar maxErr = 0;
         scalar maxZ = 0;
         label nCorners = 0;
 
         forAll(grad, nodei)
         {
             const scalar err = mag(grad[nodei] - c);
-            const scalar scale = mag(c) + maxU/minEdgeLength[nodei];
-
-            maxRelErr = max(maxRelErr, err/scale);
+            maxErr = max(maxErr, err);
             maxZ = max(maxZ, mag(grad[nodei].z()));
 
             if (isCorner[nodei])
@@ -672,11 +682,96 @@ int main(int argc, char *argv[])
 
         nFailed += check
         (
-            "max |grad(u)_j - c|/(|c| + max|u|/(shortest edge at j))",
-            maxRelErr,
-            tolFactor
+            "max |grad(u)_j - c| (tolerance 1e3 eps |c|)",
+            maxErr,
+            tolLinear
         );
         nFailed += check("max |grad(u)_j . z|", maxZ, 0);
+    }
+
+
+    // 9b. Nonlinear data against an independent unweighted LSQ
+
+    Info<< nl << "9b. LSQ gradient of u = sin(3x) cos(2t) + x^2 t against an"
+        << " unweighted LSQ solved here" << endl;
+    {
+        scalarField u(dual.nNodes());
+
+        forAll(p, nodei)
+        {
+            const scalar x = p[nodei].x();
+            const scalar t = p[nodei].y();
+
+            u[nodei] = Foam::sin(3*x)*Foam::cos(2*t) + sqr(x)*t;
+        }
+
+        const vectorField grad(dual.gradient(u));
+
+        // Edge neighbours of each node, from the edge list
+        List<DynamicList<label>> neighbours(dual.nNodes());
+
+        forAll(edges, edgei)
+        {
+            neighbours[edges[edgei].start()].append(edges[edgei].end());
+            neighbours[edges[edgei].end()].append(edges[edgei].start());
+        }
+
+        scalar maxDiff = 0;
+        scalar maxRelDiff = 0;
+        scalar maxGrad = 0;
+
+        forAll(p, nodei)
+        {
+            // Normal equations of the unweighted fit, solved by Cramer's
+            // rule
+            scalar sxx = 0;
+            scalar sxy = 0;
+            scalar syy = 0;
+            scalar bx = 0;
+            scalar by = 0;
+            scalar maxSlope = 0;
+
+            forAll(neighbours[nodei], i)
+            {
+                const label k = neighbours[nodei][i];
+                const scalar dx = p[k].x() - p[nodei].x();
+                const scalar dy = p[k].y() - p[nodei].y();
+                const scalar du = u[k] - u[nodei];
+
+                sxx += dx*dx;
+                sxy += dx*dy;
+                syy += dy*dy;
+                bx += dx*du;
+                by += dy*du;
+                maxSlope =
+                    max(maxSlope, mag(du)/Foam::sqrt(dx*dx + dy*dy));
+            }
+
+            const scalar det = sxx*syy - sqr(sxy);
+            const scalar gx = (syy*bx - sxy*by)/det;
+            const scalar gy = (sxx*by - sxy*bx)/det;
+
+            const scalar diff = Foam::sqrt
+            (
+                sqr(grad[nodei].x() - gx)
+              + sqr(grad[nodei].y() - gy)
+              + sqr(grad[nodei].z())
+            );
+
+            maxDiff = max(maxDiff, diff);
+            maxRelDiff = max(maxRelDiff, diff/(maxSlope + VSMALL));
+            maxGrad = max(maxGrad, Foam::sqrt(sqr(gx) + sqr(gy)));
+        }
+
+        Info<< "    max |grad(u)| = " << maxGrad
+            << ", max |grad(u) - grad_LSQ(u)| = " << maxDiff << endl;
+
+        nFailed += check
+        (
+            "max |grad(u)_j - grad_LSQ(u)_j|/(max_k |u_k - u_j|/|p_k - p_j|)",
+            maxRelDiff,
+            tolFactor
+        );
     }
 
 
