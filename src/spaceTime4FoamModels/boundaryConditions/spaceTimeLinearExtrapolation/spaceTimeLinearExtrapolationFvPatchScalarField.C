@@ -37,9 +37,10 @@ Foam::spaceTimeLinearExtrapolationFvPatchScalarField::gaussTypeGradient()
 const
 {
     // Allow-list: the first word is Gauss or iterativeGauss, or the first
-    // word is a limited scheme and the second word is Gauss or
-    // iterativeGauss. Anything else (leastSquares, fourth, a scheme from a
-    // user library, ...) is not Gauss-type.
+    // word is a limited scheme and the next word (after any numbers, e.g.
+    // the 1.5 of cellLimited<cubic> 1.5 Gauss linear 1) is Gauss or
+    // iterativeGauss. Anything else (leastSquares, fourth, a nested limited
+    // scheme, a scheme from a user library, ...) is not Gauss-type.
     const ITstream& is = internalField().mesh().gradScheme(gradSchemeName_);
 
     if (is.size() < 1 || !is[0].isWord())
@@ -63,11 +64,24 @@ const
      || first == "faceMDLimited"
     );
 
-    if (limited && is.size() >= 2 && is[1].isWord())
+    if (!limited)
     {
-        const word& second = is[1].wordToken();
+        return false;
+    }
 
-        return (second == "Gauss" || second == "iterativeGauss");
+    // The limiter's own arguments are numbers: skip them
+    for (label tokeni = 1; tokeni < is.size(); tokeni++)
+    {
+        if (is[tokeni].isWord())
+        {
+            const word& basic = is[tokeni].wordToken();
+
+            return (basic == "Gauss" || basic == "iterativeGauss");
+        }
+        else if (!is[tokeni].isNumber())
+        {
+            return false;
+        }
     }
 
     return false;

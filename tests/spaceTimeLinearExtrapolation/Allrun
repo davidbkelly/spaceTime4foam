@@ -26,10 +26,13 @@
 #         and tolerances).
 #     Then checks the guard with cornerFallback off (one iteration each, from
 #     the converged CC-2-EX case):
-#       - leastSquares, fourth and cellLimited leastSquares 1 (not Gauss-type):
-#         spaceTime4Foam must stop with a fatal error;
-#       - Gauss linear and cellLimited Gauss linear 1 (Gauss-type):
-#         spaceTime4Foam must print the neutral-mode warning.
+#       - leastSquares, pointCellsLeastSquares, fourth and cellLimited
+#         leastSquares 1 (not Gauss-type): spaceTime4Foam must stop with a
+#         fatal error;
+#       - Gauss linear, iterativeGauss linear 5, cellLimited Gauss linear 1,
+#         cellLimited<cubic> 1.5 Gauss linear 1, cellMDLimited Gauss linear 1
+#         and faceLimited Gauss linear 1 (Gauss-type): spaceTime4Foam must
+#         print the neutral-mode warning.
 #     Exits with a non-zero status if a run fails or any check fails.
 #
 #------------------------------------------------------------------------------
@@ -131,15 +134,28 @@ done
 # CC-2-EX case for each gradient scheme below. Gauss-type schemes (the
 # allow-list of the boundary condition) must give the neutral-mode warning;
 # all other schemes must stop with a fatal error.
-guardNames=(LS fourth cellLimitedLS Gauss cellLimitedGauss)
+guardNames=(
+    LS pointCellsLS fourth cellLimitedLS
+    Gauss iterativeGauss cellLimitedGauss cellLimitedCubicGauss
+    cellMDLimitedGauss faceLimitedGauss
+)
 guardSchemes=(
     "leastSquares"
+    "pointCellsLeastSquares"
     "fourth"
     "cellLimited leastSquares 1"
     "Gauss linear"
+    "iterativeGauss linear 5"
     "cellLimited Gauss linear 1"
+    "cellLimited<cubic> 1.5 Gauss linear 1"
+    "cellMDLimited Gauss linear 1"
+    "faceLimited Gauss linear 1"
 )
-guardExpected=(fatal fatal fatal warning warning)
+guardExpected=(
+    fatal fatal fatal fatal
+    warning warning warning warning
+    warning warning
+)
 
 for i in "${!guardNames[@]}"
 do
