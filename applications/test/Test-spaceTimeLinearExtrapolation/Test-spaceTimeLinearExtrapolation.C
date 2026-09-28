@@ -50,6 +50,11 @@ Description
        u_P to formulaTol.
     6. With -fallbackFaces <n>: the total number of fallback faces must be
        n.
+    7. Corner-fallback gradient: on the fallback faces the written gradient
+       entry must be exactly 0, so that faces that are flagged but not set
+       to the zeroGradient value are caught with any gradient scheme (with
+       Gauss linear and a = 1 the corner gradient is zero by symmetry, so
+       check 5 alone cannot see such a fault).
 
     Prints the maximum difference of each check and exits with status 1 if
     any check fails.
@@ -169,6 +174,7 @@ int main(int argc, char *argv[])
     // Patches with the condition, and their written and read values
     labelList patchIDs;
     List<scalarField> writtenValues;
+    List<scalarField> writtenGradients;
     List<scalarField> readValues;
     List<word> gradSchemeNames;
     boolList cornerFallbacks;
@@ -197,6 +203,10 @@ int main(int argc, char *argv[])
             writtenValues.append
             (
                 scalarField("value", patchDict, pf.size())
+            );
+            writtenGradients.append
+            (
+                scalarField("gradient", patchDict, pf.size())
             );
             readValues.append(scalarField(pf));
             gradSchemeNames.append(pf.gradSchemeName());
@@ -302,6 +312,7 @@ int main(int argc, char *argv[])
         label nNonTrivial = 0;
         label nPatchFallback = 0;
         scalar fallbackDiff = 0;
+        scalar fallbackGradient = 0;
 
         forAll(correction, facei)
         {
@@ -309,6 +320,8 @@ int main(int argc, char *argv[])
             {
                 nPatchFallback++;
                 fallbackDiff = max(fallbackDiff, correction[facei]);
+                fallbackGradient =
+                    max(fallbackGradient, mag(writtenGradients[i][facei]));
             }
             else if (correction[facei] > nonTrivialMin)
             {
@@ -354,6 +367,15 @@ int main(int argc, char *argv[])
           + Foam::name(nPatchFallback) + " corner-fallback face(s)",
             fallbackDiff,
             formulaTol
+        );
+
+        // Exactly zero: the tolerance is 0
+        nFailed += check
+        (
+            "7. written gradient entry on the "
+          + Foam::name(nPatchFallback) + " corner-fallback face(s) is 0",
+            fallbackGradient,
+            0
         );
     }
 
