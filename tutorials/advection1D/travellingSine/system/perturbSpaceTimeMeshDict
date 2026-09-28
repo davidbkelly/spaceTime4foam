@@ -1,0 +1,28 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      perturbSpaceTimeMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Settings of perturbSpaceTimeMesh (run by ./Allmesh N left perturbed).
+// Every interior node is moved by (dx, dt), each drawn uniformly from
+// [-maxFraction h, maxFraction h] with h = sqrt(A_domain/(nTriangles/2));
+// boundary nodes are not moved. The same seed gives the same mesh.
+
+// Random seed (overridden by -seed, e.g. ./Allmesh 32 left perturbed 7)
+seed            12345;
+
+// Maximum displacement in each direction, as a fraction of h
+maxFraction     0.2;
+
+// ************************************************************************* //
