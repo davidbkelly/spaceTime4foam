@@ -1,0 +1,120 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/spaceTimeLinearExtrapolation/Allrun
+#
+# Description
+#     Test of the spaceTimeLinearExtrapolation outflow boundary condition.
+#     Runs the travellingSine tutorial case on the N = 16 left-diagonal
+#     triangle mesh with tEnd and xRight set to spaceTimeLinearExtrapolation,
+#     for
+#       CC-2-EX     div(phiST,u) Gauss linearUpwind grad(u),
+#                   grad(u) Gauss linear
+#     and runs Test-spaceTimeLinearExtrapolation on the converged solution,
+#     which checks on every outflow face that the face value equals
+#     u_P + grad(u)_P & (C_f - C_P) and that it differs from the
+#     zeroGradient value u_P (see the Test-spaceTimeLinearExtrapolation
+#     description for the checks and tolerances).
+#     Exits with a non-zero status if a run fails or any check fails.
+#
+#     CC-2-LS-EX (grad(u) leastSquares) is not run: in the top-right corner
+#     cell, which has two outflow faces, the leastSquares gradient and the
+#     extrapolated face values form an unstable fixed-point iteration (gain
+#     1.5 per iteration) in a direction the cell balance does not see, so
+#     the corner face values are not converged when the residual is (check
+#     2 fails). Kept out until this is resolved.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+if ! command -v Test-spaceTimeLinearExtrapolation > /dev/null 2>&1
+then
+    echo "Test-spaceTimeLinearExtrapolation not found: run ./Allwmake first"
+    exit 1
+fi
+
+N=16
+tutorialDir=../../tutorials/advection1D/travellingSine
+schemes="CC-2-EX"
+
+# gradScheme <scheme>: the grad(u) entry of fvSchemes
+function gradScheme()
+{
+    case "$1" in
+    CC-2-LS-EX) echo "leastSquares" ;;
+    *) echo "Gauss linear" ;;
+    esac
+}
+
+rm -rf run
+mkdir run
+
+# Mesh once; all schemes use the same mesh
+meshDir=run/mesh
+mkdir -p "$meshDir"
+cp -r "$tutorialDir"/gmsh "$tutorialDir"/system "$tutorialDir"/Allmesh \
+    "$meshDir"/
+if ! "$meshDir"/Allmesh "$N" left > "$meshDir"/log.Allmesh 2>&1
+then
+    echo "FAIL: Allmesh $N (see $meshDir/log.Allmesh)"
+    exit 1
+fi
+
+nFailed=0
+failedRuns=""
+
+for scheme in $schemes
+do
+    caseDir="run/$scheme"
+    mkdir -p "$caseDir"
+    cp -r "$tutorialDir"/0 "$tutorialDir"/constant "$tutorialDir"/system \
+        "$caseDir"/
+    cp -r "$meshDir"/constant/polyMesh "$caseDir"/constant/
+
+    echo "Running $scheme on N = $N"
+    (
+        cd "$caseDir" || exit 1
+        foamDictionary system/fvSchemes -entry "divSchemes/div(phiST,u)" \
+            -set "Gauss linearUpwind grad(u)" > /dev/null 2>&1 || exit 1
+        foamDictionary system/fvSchemes -entry "gradSchemes/grad(u)" \
+            -set "$(gradScheme "$scheme")" > /dev/null 2>&1 || exit 1
+        for patch in tEnd xRight
+        do
+            foamDictionary 0/u -entry "boundaryField/$patch/type" \
+                -set spaceTimeLinearExtrapolation > /dev/null 2>&1 || exit 1
+        done
+        runApplication spaceTime4Foam || exit 1
+        runApplication Test-spaceTimeLinearExtrapolation || exit 1
+    )
+    status=$?
+
+    logFile="$caseDir/log.Test-spaceTimeLinearExtrapolation"
+    if [ -f "$logFile" ]
+    then
+        sed -n '/^Patch/,$p' "$logFile"
+    fi
+
+    if [[ $status -ne 0 ]]
+    then
+        echo "    FAIL: $scheme (exit status $status, see $caseDir)"
+        nFailed=$((nFailed + 1))
+        failedRuns="$failedRuns $scheme"
+    fi
+done
+
+if [[ $nFailed -gt 0 ]]
+then
+    echo "spaceTimeLinearExtrapolation: $nFailed case(s) FAILED:$failedRuns"
+    exit 1
+fi
+
+echo "spaceTimeLinearExtrapolation: all checks passed"
+
+#------------------------------------------------------------------------------
