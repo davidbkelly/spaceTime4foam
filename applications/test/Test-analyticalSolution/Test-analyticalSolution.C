@@ -28,6 +28,7 @@ Description
       d^2 (2 pi k)^3 / 6 < 1e-7 for k <= 2);
     - source(p) is compared with the central-difference PDE residual
       du/dt + a du/dx (zero for this solution);
+    - if hasSource() is false, |source(p)| must not exceed zeroSourceTol;
     - the field overloads are compared with the point versions.
 
     Prints the maximum error of each check and exits with status 1 if any
@@ -74,6 +75,7 @@ int main(int argc, char *argv[])
     const scalar valueTol = 1e-14;
     const scalar cdTol = 1e-6;
     const scalar fieldTol = 0;
+    const scalar zeroSourceTol = 1e-12;
 
     // Space-time test points (x, t, 0), including points outside [0, 1]^2
     List<point> points
@@ -159,6 +161,24 @@ int main(int argc, char *argv[])
         nFailed += check("du/dt against CD", maxGradTError, cdTol);
         nFailed += check("du/dz is zero", maxGradZError, 0);
         nFailed += check("source against CD", maxSourceError, cdTol);
+
+        // A solution that declares no source must have a zero source
+        if (!sol.hasSource())
+        {
+            scalar maxSource = 0;
+
+            forAll(points, pointi)
+            {
+                maxSource = max(maxSource, mag(sol.source(points[pointi])));
+            }
+
+            nFailed += check
+            (
+                "source is zero (hasSource false)",
+                maxSource,
+                zeroSourceTol
+            );
+        }
 
         // Field overloads against the point versions
         const pointField pts(points);
