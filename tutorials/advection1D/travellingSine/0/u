@@ -32,9 +32,12 @@ boundaryField
     }
 
     // Outflow (A . n > 0): no data. zeroGradient (primary) sets u_f = u_P.
-    // For the CC-2-EX variant (linear extrapolation with grad(u) of
-    // system/fvSchemes), use on tEnd and xRight instead:
+    // For the CC-2-EX and CC-2-LS-EX variants (linear extrapolation with
+    // grad(u) of system/fvSchemes), use on tEnd and xRight instead:
     //     type            spaceTimeLinearExtrapolation;
+    // Keep cornerFallback on (the default): the corner cell with two such
+    // faces uses u_f = u_P. With it off, leastSquares is a fatal error
+    // (unstable corner mode) and Gauss linear gives a non-unique solution.
     tEnd
     {
         type            zeroGradient;

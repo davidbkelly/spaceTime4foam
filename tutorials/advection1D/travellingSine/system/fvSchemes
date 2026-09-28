@@ -21,6 +21,8 @@ FoamFile
 // CC-1:                 div(phiST,u) Gauss upwind
 // CC-2-EX:              as CC-2 with spaceTimeLinearExtrapolation on the
 //                       outflow patches (see 0/u)
+// CC-2-LS-EX:           as CC-2-EX with grad(u) leastSquares (needs the
+//                       default cornerFallback on)
 
 ddtSchemes
 {
