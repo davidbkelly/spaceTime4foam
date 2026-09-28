@@ -1,0 +1,295 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/perturbSpaceTimeMesh/Allrun
+#
+# Description
+#     Test of perturbSpaceTimeMesh on the Left N = 32 tutorial mesh
+#     (h = 1/32), comparing the perturbed points with the unperturbed ones
+#     (same gmsh mesh, so the same point order):
+#       - the perturbed mesh (seed 12345 and maxFraction 0.2 of the tutorial
+#         system/perturbSpaceTimeMeshDict): max |dx| and max |dt| over the
+#         interior points are <= 0.2 h and > 0.15 h; boundary points
+#         (x or t equal to 0 or 1) are unchanged bit for bit; z is
+#         unchanged; the front and back points of every pair have the same
+#         perturbed (x, t) bit for bit (so the same displacement);
+#       - the log contains the seed and maxFraction used;
+#       - checkMesh reports "Mesh OK." (Allmesh);
+#       - Test-medianDualMesh -domainArea 1 passes on the perturbed mesh
+#         (total area unchanged, and all the geometry identities);
+#       - the same seed gives an identical points file (checksum), and a
+#         different seed (Allmesh 32 left perturbed 7) a different one;
+#       - -maxFraction 0.1 -seed 3: the log shows these values and
+#         max |dx|, |dt| <= 0.1 h;
+#       - -maxFraction 0.6: a triangle is inverted, so the utility must stop
+#         with a fatal error and leave the points file unchanged.
+#     Report only (no order claims): CC-2 (spaceTime4Foam, tutorial
+#     settings) must converge on the perturbed mesh, then spaceTimeErrors
+#     prints the error norms.
+#     Exits with a non-zero status if a run or a check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+for app in perturbSpaceTimeMesh Test-medianDualMesh spaceTime4Foam \
+    spaceTimeErrors
+do
+    if ! command -v "$app" > /dev/null 2>&1
+    then
+        echo "$app not found: run ./Allwmake first"
+        exit 1
+    fi
+done
+
+N=32
+tutorialDir=../../tutorials/advection1D/travellingSine
+
+nFailed=0
+
+# check <description> <actual> <expected>
+function check()
+{
+    if [ "$2" = "$3" ]
+    then
+        echo "    PASS: $1 ($2)"
+    else
+        echo "    FAIL: $1 (got '$2', expected '$3')"
+        nFailed=$((nFailed + 1))
+    fi
+}
+
+# newCase <name> <Allmesh arguments...>: copy the tutorial and mesh it
+function newCase()
+{
+    local name="$1"
+    shift
+    mkdir -p "run/$name"
+    cp -r "$tutorialDir"/0 "$tutorialDir"/constant "$tutorialDir"/system \
+        "$tutorialDir"/gmsh "$tutorialDir"/Allmesh "run/$name"/
+    if ! "run/$name"/Allmesh "$@" > "run/$name"/log.Allmesh 2>&1
+    then
+        echo "    FAIL: Allmesh $* (see run/$name/log.Allmesh)"
+        nFailed=$((nFailed + 1))
+        return 1
+    fi
+}
+
+# compare <reference points> <perturbed points> <N>
+# Print: maxDx/h maxDt/h nBoundaryChanged nZChanged nPairMismatch
+#        nInteriorMoved (dx, dt relative to h = 1/N)
+function compare()
+{
+    awk -v N="$3" '
+        FNR == 1 { state = 0; n = 0; file++ }
+        state == 0 && /^[0-9]+$/ { size = $1; state = 1; next }
+        state == 1 && /^\($/ { state = 2; next }
+        state == 2 && n < size {
+            line = $0
+            gsub(/[()]/, "", line)
+            split(line, c, " ")
+            if (file == 1)
+            {
+                x0[n] = c[1]; y0[n] = c[2]; z0[n] = c[3]
+            }
+            else
+            {
+                x1[n] = c[1]; y1[n] = c[2]; z1[n] = c[3]
+            }
+            n++
+        }
+        END {
+            h = 1.0/N
+            maxDx = 0; maxDt = 0
+            for (i = 0; i < size; i++)
+            {
+                if (z1[i] != z0[i]) { nZ++ }
+                onBoundary = (x0[i] + 0 == 0 || x0[i] + 0 == 1 \
+                    || y0[i] + 0 == 0 || y0[i] + 0 == 1)
+                if (onBoundary)
+                {
+                    # Bit for bit: the written text is identical
+                    if (x1[i] != x0[i] || y1[i] != y0[i]) { nB++ }
+                }
+                else
+                {
+                    dx = x1[i] - x0[i]; if (dx < 0) { dx = -dx }
+                    dt = y1[i] - y0[i]; if (dt < 0) { dt = -dt }
+                    if (dx > maxDx) { maxDx = dx }
+                    if (dt > maxDt) { maxDt = dt }
+                    if (dx > 0 || dt > 0) { nMoved++ }
+                }
+                # Front/back pairs by the unperturbed (x, t)
+                key = x0[i] " " y0[i]
+                if (key in pairX)
+                {
+                    if (pairX[key] != x1[i] || pairY[key] != y1[i])
+                    {
+                        nPair++
+                    }
+                    nPaired++
+                }
+                else
+                {
+                    pairX[key] = x1[i]; pairY[key] = y1[i]
+                }
+            }
+            if (2*nPaired != size) { nPair += size - 2*nPaired }
+            printf "%.6f %.6f %d %d %d %d\n", maxDx/h, maxDt/h, nB + 0, \
+                nZ + 0, nPair + 0, nMoved + 0
+        }
+    ' "$1" "$2"
+}
+
+# le <a> <b>: 1 if a <= b, else 0 (floating point)
+function le()
+{
+    awk -v a="$1" -v b="$2" 'BEGIN { print (a <= b ? 1 : 0) }'
+}
+
+# gt <a> <b>: 1 if a > b, else 0 (floating point)
+function gt()
+{
+    awk -v a="$1" -v b="$2" 'BEGIN { print (a > b ? 1 : 0) }'
+}
+
+rm -rf run
+mkdir run
+points=constant/polyMesh/points
+
+
+# Meshes: unperturbed, perturbed (twice with the same seed), other seed
+
+echo "Creating the meshes (N = $N)"
+newCase reference "$N" left || exit 1
+newCase seedA "$N" left perturbed || exit 1
+newCase seedA2 "$N" left perturbed || exit 1
+newCase seedB "$N" left perturbed 7 || exit 1
+
+nInterior=$(((N - 1)*(N - 1)))
+
+
+# Perturbed mesh against the reference
+
+echo
+echo "Perturbed mesh (dictionary seed and maxFraction) against the reference"
+read -r relDx relDt nB nZ nPair nMoved \
+    <<< "$(compare run/reference/$points run/seedA/$points "$N")"
+echo "    max |dx| = $relDx h, max |dt| = $relDt h"
+check "max |dx| <= 0.2 h" "$(le "$relDx" 0.2)" 1
+check "max |dt| <= 0.2 h" "$(le "$relDt" 0.2)" 1
+check "max |dx| > 0.15 h" "$(gt "$relDx" 0.15)" 1
+check "max |dt| > 0.15 h" "$(gt "$relDt" 0.15)" 1
+check "boundary points changed" "$nB" 0
+check "points with z changed" "$nZ" 0
+check "front/back pairs with different perturbed (x, t)" "$nPair" 0
+check "interior points moved (front and back), 2 (N - 1)^2" "$nMoved" \
+    "$((2*nInterior))"
+
+logFile=run/seedA/log.perturbSpaceTimeMesh
+check "log shows the seed" \
+    "$(grep -c "^ *seed *12345$" "$logFile")" 1
+check "log shows maxFraction" \
+    "$(grep -c "^ *maxFraction *0.2" "$logFile")" 1
+check "log: interior nodes moved" \
+    "$(grep -c "interior nodes moved $nInterior," "$logFile")" 1
+check "checkMesh reports Mesh OK" \
+    "$(grep -c "^Mesh OK." run/seedA/log.checkMesh)" 1
+
+(
+    cd run/seedA || exit 1
+    Test-medianDualMesh -domainArea 1 > log.Test-medianDualMesh 2>&1
+)
+check "Test-medianDualMesh -domainArea 1 (total area and identities)" \
+    "$?" 0
+grep "sum V_j - domainArea" run/seedA/log.Test-medianDualMesh
+
+
+# Reproducibility
+
+echo
+echo "Reproducibility"
+sumA=$(shasum run/seedA/$points | awk '{print $1}')
+sumA2=$(shasum run/seedA2/$points | awk '{print $1}')
+sumB=$(shasum run/seedB/$points | awk '{print $1}')
+sumRef=$(shasum run/reference/$points | awk '{print $1}')
+echo "    checksums: seed 12345 $sumA, again $sumA2, seed 7 $sumB"
+check "same seed, identical points" "$([ "$sumA" = "$sumA2" ] && echo yes)" \
+    yes
+check "different seed, different points" \
+    "$([ "$sumA" != "$sumB" ] && echo yes)" yes
+check "seed 7 in the log" \
+    "$(grep -c "^ *seed *7$" run/seedB/log.perturbSpaceTimeMesh)" 1
+
+
+# Command-line overrides
+
+echo
+echo "Overrides -maxFraction 0.1 -seed 3"
+mkdir -p run/maxFraction
+cp -r run/reference/constant run/reference/system run/maxFraction/
+(
+    cd run/maxFraction || exit 1
+    perturbSpaceTimeMesh -overwrite -maxFraction 0.1 -seed 3 \
+        > log.perturbSpaceTimeMesh 2>&1
+)
+check "perturbSpaceTimeMesh -maxFraction 0.1 -seed 3" "$?" 0
+logFile=run/maxFraction/log.perturbSpaceTimeMesh
+check "log shows seed 3" "$(grep -c "^ *seed *3$" "$logFile")" 1
+check "log shows maxFraction 0.1" \
+    "$(grep -c "^ *maxFraction *0.1" "$logFile")" 1
+read -r relDx relDt nB nZ nPair nMoved \
+    <<< "$(compare run/reference/$points run/maxFraction/$points "$N")"
+echo "    max |dx| = $relDx h, max |dt| = $relDt h"
+check "max |dx| <= 0.1 h" "$(le "$relDx" 0.1)" 1
+check "max |dt| <= 0.1 h" "$(le "$relDt" 0.1)" 1
+check "boundary points changed" "$nB" 0
+
+echo
+echo "Inverting perturbation -maxFraction 0.6"
+mkdir -p run/inverted
+cp -r run/reference/constant run/reference/system run/inverted/
+(
+    cd run/inverted || exit 1
+    perturbSpaceTimeMesh -overwrite -maxFraction 0.6 \
+        > log.perturbSpaceTimeMesh 2>&1
+)
+status=$?
+check "perturbSpaceTimeMesh -maxFraction 0.6 fails" \
+    "$([[ $status -ne 0 ]] && echo yes)" yes
+check "fatal error: the signed area changes" \
+    "$(grep -c "the signed area changes" \
+        run/inverted/log.perturbSpaceTimeMesh)" 1
+check "points file unchanged" \
+    "$(shasum run/inverted/$points | awk '{print $1}')" "$sumRef"
+
+
+# Report-only smoke run: CC-2 on the perturbed mesh
+
+echo
+echo "Smoke run (report only): CC-2 on the perturbed Left N = $N mesh"
+(
+    cd run/seedA || exit 1
+    runApplication spaceTime4Foam > /dev/null || exit 1
+    runApplication spaceTimeErrors > /dev/null || exit 1
+)
+check "spaceTime4Foam converges and spaceTimeErrors runs" "$?" 0
+grep "Converged\|converged" run/seedA/log.spaceTime4Foam | tail -2
+sed -n '/^Method/,/cell value/p' run/seedA/log.spaceTimeErrors
+
+echo
+if [[ $nFailed -gt 0 ]]
+then
+    echo "perturbSpaceTimeMesh: $nFailed check(s) FAILED"
+    exit 1
+fi
+
+echo "perturbSpaceTimeMesh: all checks passed"
+
+#------------------------------------------------------------------------------
