@@ -1,0 +1,213 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/medianDualIdentities/Allrun
+#
+# Description
+#     Geometry identities of medianDualMesh (CLAUDE.md section 6,
+#     verification test 3, and LSQ exactness from test 5) on
+#       - structured Left and Right meshes, N = 8 and 32 (tutorial Allmesh);
+#       - perturbed Left meshes, N = 8 and 32, with the seed of the tutorial
+#         system/perturbSpaceTimeMeshDict (Allmesh N left perturbed);
+#       - one unstructured mesh: gmsh Frontal-Delaunay (algorithm 6) on the
+#         unit square, unstructuredSquare.geo, extruded one layer.
+#     On each mesh Test-medianDualMesh -domainArea 1 checks the pairing,
+#     sum V_j = domain area, closure, the volume identity, antisymmetry from
+#     the higher-labelled node, the orientation of n_jk and n_B, the boundary
+#     edges per patch and LSQ exactness (see its description). In addition:
+#       - structured and perturbed meshes: N boundary edges on each of
+#         tStart, tEnd, xLeft and xRight;
+#       - unstructured mesh: 200 to 500 triangles and at least 3 distinct
+#         interior valences (the valence histogram is printed).
+#     A table of the largest residuals per mesh is printed at the end.
+#     Exits with a non-zero status if a run or a check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+for app in Test-medianDualMesh perturbSpaceTimeMesh
+do
+    if ! command -v "$app" > /dev/null 2>&1
+    then
+        echo "$app not found: run ./Allwmake first"
+        exit 1
+    fi
+done
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+
+nFailed=0
+failedMeshes=""
+
+# fail <mesh> <message>
+function fail()
+{
+    echo "    FAIL: $1: $2"
+    nFailed=$((nFailed + 1))
+    failedMeshes="$failedMeshes $1"
+}
+
+# testMesh <name>: run Test-medianDualMesh in run/<name>
+function testMesh()
+{
+    local name="$1"
+    (
+        cd "run/$name" || exit 1
+        Test-medianDualMesh -domainArea 1 > log.Test-medianDualMesh 2>&1
+    )
+    local status=$?
+    grep "FAIL" "run/$name/log.Test-medianDualMesh"
+    if [[ $status -ne 0 ]]
+    then
+        fail "$name" \
+            "Test-medianDualMesh (see run/$name/log.Test-medianDualMesh)"
+    else
+        echo "    PASS: $name: Test-medianDualMesh"
+    fi
+}
+
+# checkPatchEdges <name> <N>: N boundary edges on each outer patch
+function checkPatchEdges()
+{
+    local name="$1" N="$2" patch nEdges
+    for patch in tStart tEnd xLeft xRight
+    do
+        nEdges=$(grep "boundary edges on patch $patch " \
+            "run/$name/log.Test-medianDualMesh" | awk '{print $NF}')
+        if [ "$nEdges" = "$N" ]
+        then
+            echo "    PASS: $name: $nEdges boundary edges on $patch"
+        else
+            fail "$name" "'$nEdges' boundary edges on $patch, expected $N"
+        fi
+    done
+}
+
+rm -rf run
+mkdir run
+
+
+# Structured and perturbed meshes
+
+for N in 8 32
+do
+    for variant in left right leftPerturbed
+    do
+        name="${variant}_N$N"
+        case "$variant" in
+        left) args=("$N" left) ;;
+        right) args=("$N" right) ;;
+        leftPerturbed) args=("$N" left perturbed) ;;
+        esac
+
+        echo "Mesh $name (Allmesh ${args[*]})"
+        mkdir -p "run/$name"
+        cp -r "$tutorialDir"/gmsh "$tutorialDir"/system \
+            "$tutorialDir"/Allmesh "run/$name"/
+        if ! "run/$name"/Allmesh "${args[@]}" > "run/$name"/log.Allmesh 2>&1
+        then
+            fail "$name" "Allmesh (see run/$name/log.Allmesh)"
+            continue
+        fi
+
+        testMesh "$name"
+        checkPatchEdges "$name" "$N"
+    done
+done
+
+
+# Unstructured mesh
+
+name=unstructured
+echo "Mesh $name (unstructuredSquare.geo)"
+mkdir -p "run/$name"
+cp -r "$tutorialDir"/system "run/$name"/
+cp unstructuredSquare.geo "run/$name"/
+(
+    cd "run/$name" || exit 1
+    gmsh -3 -format msh22 -o unstructuredSquare.msh unstructuredSquare.geo \
+        > log.gmsh 2>&1 || exit 1
+    runApplication gmshToFoam unstructuredSquare.msh > /dev/null || exit 1
+    runApplication foamDictionary constant/polyMesh/boundary \
+        -entry entry0/frontAndBack/type -set empty > /dev/null || exit 1
+    runApplication checkMesh > /dev/null || exit 1
+    grep -q "^Mesh OK." log.checkMesh || exit 1
+)
+meshStatus=$?
+if [[ $meshStatus -ne 0 ]]
+then
+    fail "$name" "meshing or checkMesh (see run/$name)"
+else
+    testMesh "$name"
+
+    logFile="run/$name/log.Test-medianDualMesh"
+    nTriangles=$(awk '/^ *triangles:/ {print $2; exit}' "$logFile")
+    nValences=$(awk '/distinct interior valences:/ {print $NF; exit}' \
+        "$logFile")
+    sed -n '/^Median-dual mesh/,/^ *h = /p' "$logFile"
+    sed -n '/^Valence histogram/,/distinct interior/p' "$logFile"
+
+    if [[ ${nTriangles:-0} -ge 200 && ${nTriangles:-0} -le 500 ]]
+    then
+        echo "    PASS: $name: $nTriangles triangles (200 to 500)"
+    else
+        fail "$name" "'$nTriangles' triangles, expected 200 to 500"
+    fi
+
+    if [[ ${nValences:-0} -ge 3 ]]
+    then
+        echo "    PASS: $name: $nValences distinct interior valences (>= 3)"
+    else
+        fail "$name" "'$nValences' distinct interior valences, expected >= 3"
+    fi
+fi
+
+
+# Summary table of the largest residuals (relative, see Test-medianDualMesh)
+
+echo
+echo "Largest residuals per mesh (relative to the local scale):"
+printf "    %-18s %9s %11s %11s %11s %11s %11s\n" mesh triangles \
+    "sumV-A" closure "V identity" antisym LSQ
+for logFile in run/*/log.Test-medianDualMesh
+do
+    name="${logFile#run/}"
+    name="${name%/log.Test-medianDualMesh}"
+    awk -v name="$name" '
+        # value before " <= " or " > " on a check line
+        function val(line)
+        {
+            sub(/ (<=|>) .*/, "", line)
+            n = split(line, w, " ")
+            return w[n]
+        }
+        /^ *triangles:/ { nTri = $2 }
+        /sum V_j - domainArea/ { area = val($0) }
+        /3\. max \|closure_j\|/ { closure = val($0) }
+        /4\. max .*interior nodes/ { vol = val($0) }
+        /max \|n_kj \+ n_jk\|\// { anti = val($0) }
+        /max \|grad\(u\)_j - c\|/ { lsq = val($0) }
+        END {
+            printf "    %-18s %9s %11.3g %11.3g %11.3g %11.3g %11.3g\n", \
+                name, nTri, area, closure, vol, anti, lsq
+        }
+    ' "$logFile"
+done
+echo
+
+if [[ $nFailed -gt 0 ]]
+then
+    echo "medianDualIdentities: $nFailed check(s) FAILED:$failedMeshes"
+    exit 1
+fi
+
+echo "medianDualIdentities: all checks passed"
+
+#------------------------------------------------------------------------------
