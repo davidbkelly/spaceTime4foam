@@ -9,4 +9,6 @@ analyticalSolutions/travellingSine/travellingSine.C
 boundaryConditions/spaceTimeAnalyticalFixedValue/spaceTimeAnalyticalFixedValueFvPatchScalarField.C
 boundaryConditions/spaceTimeLinearExtrapolation/spaceTimeLinearExtrapolationFvPatchScalarField.C
 
+medianDualMesh/medianDualMesh.C
+
 LIB = $(FOAM_MODULE_LIBBIN)/libspaceTime4FoamModels
