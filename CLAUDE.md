@@ -236,6 +236,21 @@ offset vector (not only its normal part), re-evaluated every outer
 mechanism must be documented and its effect on convergence (iterations,
 final residual) reported against `zeroGradient`.
 
+Corner fallback (S2b decision): in any cell with two or more
+`spaceTimeLinearExtrapolation` faces (on `Left` meshes only the top-right
+outflow corner cell), those faces use the zeroGradient value `u_f = u_P`
+instead. Reason (S2b audit): in that cell the extrapolation feeds the
+(1, -1) gradient component back into itself, a direction the a = 1 cell
+balance cannot see. With `Gauss linear` the gain is exactly 1 (neutral
+mode, non-unique solution); with `leastSquares` it is 1.5 (divergence
+hidden by the residual). The fallback applies to both CC-2-EX and
+CC-2-LS-EX. Each run logs the number of faces using the fallback. A
+`FatalError` guard stops any configuration in which the unstable corner
+coupling could occur without the fallback. Cost: one O(h) cell when
+a != 1, which would then dominate Linf; for a = 1 the corner cell value
+is unaffected. Upgrade path for a != 1 (for example a multi-rate
+benchmark): take the corner cell's gradient from its upwind neighbour.
+
 The `cellCentred` source term: until a tested source implementation
 exists, `cellCentred` must stop with a fatal error if the selected
 `analyticalSolution` has a non-zero source.
@@ -330,7 +345,10 @@ Required sections:
     with a = 1), the boundary-strip error signature (L1 ~ h^2,
     L2 ~ h^1.5, Linf ~ h) compared with the observed orders, the
     `leastSquares` boundary inconsistency, and what the extrapolated
-    t = T value does and does not measure.
+    t = T value does and does not measure. Also the outflow-corner
+    mode of `spaceTimeLinearExtrapolation` (neutral with Gauss, gain
+    1.5 with leastSquares), the corner fallback, its O(h) cost when
+    a != 1, and the upwind-neighbour-gradient upgrade path.
 11. When each approach is likely to be useful, and recommended next steps.
 12. References.
 
