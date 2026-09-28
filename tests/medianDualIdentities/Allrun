@@ -24,6 +24,8 @@
 #       - unstructured mesh: 200 to 500 triangles and at least 3 distinct
 #         interior valences (the valence histogram is printed).
 #     A table of the largest residuals per mesh is printed at the end.
+#     It includes the V identity at boundary nodes and the LSQ comparison
+#     with an independent unweighted fit on nonlinear data (check 9b).
 #     Exits with a non-zero status if a run or a check fails.
 #
 #------------------------------------------------------------------------------
@@ -170,12 +172,13 @@ else
 fi
 
 
-# Summary table of the largest residuals (relative, see Test-medianDualMesh)
+# Summary table of the largest residuals (see Test-medianDualMesh)
 
 echo
-echo "Largest residuals per mesh (relative to the local scale):"
-printf "    %-18s %9s %11s %11s %11s %11s %11s\n" mesh triangles \
-    "sumV-A" closure "V identity" antisym LSQ
+echo "Largest residuals per mesh (sumV-A and LSQ lin absolute, the others"
+echo "relative to the local scale of each check; see Test-medianDualMesh):"
+printf "    %-18s %9s %9s %9s %9s %9s %9s %9s %9s\n" mesh triangles \
+    "sumV-A" closure "V int" "V bnd" antisym "LSQ lin" "LSQ nonl"
 for logFile in run/*/log.Test-medianDualMesh
 do
     name="${logFile#run/}"
@@ -192,11 +195,14 @@ do
         /sum V_j - domainArea/ { area = val($0) }
         /3\. max \|closure_j\|/ { closure = val($0) }
         /4\. max .*interior nodes/ { vol = val($0) }
+        /4\. max .*boundary nodes/ { volB = val($0) }
         /max \|n_kj \+ n_jk\|\// { anti = val($0) }
         /max \|grad\(u\)_j - c\|/ { lsq = val($0) }
+        /max \|grad\(u\)_j - grad_LSQ/ { lsqN = val($0) }
         END {
-            printf "    %-18s %9s %11.3g %11.3g %11.3g %11.3g %11.3g\n", \
-                name, nTri, area, closure, vol, anti, lsq
+            printf "    %-18s %9s", name, nTri
+            printf " %9.3g %9.3g %9.3g %9.3g %9.3g %9.3g %9.3g\n", \
+                area, closure, vol, volB, anti, lsq, lsqN
         }
     ' "$logFile"
 done
