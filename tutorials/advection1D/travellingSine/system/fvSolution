@@ -31,4 +31,12 @@ solvers
     }
 }
 
+// Compute grad(u) once per iteration and reuse it wherever it is requested
+// with the same field state (spaceTimeLinearExtrapolation patches and the
+// linearUpwind correction). This does not change the results.
+cache
+{
+    grad(u);
+}
+
 // ************************************************************************* //

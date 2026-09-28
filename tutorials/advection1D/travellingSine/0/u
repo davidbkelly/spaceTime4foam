@@ -31,7 +31,10 @@ boundaryField
         type            spaceTimeAnalyticalFixedValue;
     }
 
-    // Outflow (A . n > 0): no data
+    // Outflow (A . n > 0): no data. zeroGradient (primary) sets u_f = u_P.
+    // For the CC-2-EX variant (linear extrapolation with grad(u) of
+    // system/fvSchemes), use on tEnd and xRight instead:
+    //     type            spaceTimeLinearExtrapolation;
     tEnd
     {
         type            zeroGradient;
