@@ -79,7 +79,9 @@ If (StrCmp(diagonal, "left") == 0)
 ElseIf (StrCmp(diagonal, "right") == 0)
     Transfinite Surface{1} = {1, 2, 3, 4} Right;
 Else
-    Error("diagonal must be left or right, not %s", diagonal);
+    // Abort makes gmsh exit with a non-zero status, but gmsh may still
+    // write a (wrong) mesh file: callers must check the exit status
+    Error(StrCat("diagonal must be left or right, not ", diagonal));
     Abort;
 EndIf
 
