@@ -31,6 +31,12 @@ Description
     The numbers come from OpenFOAM's Random, seeded with seed; the nodes
     are visited in local (medianDualMesh) node order and dx is drawn
     before dt, so a mesh is reproduced from its seed and maxFraction.
+    Portability: Random maps its Rand48 generator (portable) through
+    std::uniform_real_distribution, whose algorithm is not fixed by the C++
+    standard, so the same seed may give a different mesh with another C++
+    standard library (e.g. libstdc++ instead of libc++). The mesh is
+    reproducible on one toolchain; tests/perturbSpaceTimeMesh stores
+    reference displacements and a checksum to detect any change.
 
     Before writing, the signed area of every triangle is recomputed: the
     utility stops with a fatal error if any sign changes or any area is
