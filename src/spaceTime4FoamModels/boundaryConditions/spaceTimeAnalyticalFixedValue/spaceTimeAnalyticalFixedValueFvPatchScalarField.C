@@ -166,7 +166,6 @@ void Foam::spaceTimeAnalyticalFixedValueFvPatchScalarField::updateCoeffs()
 }
 
 
-
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
