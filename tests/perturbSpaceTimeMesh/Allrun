@@ -309,22 +309,24 @@ check "seed 7 in the log" \
 
 # Stored references: Left N = 8, seed 12345, maxFraction 0.2 (the tutorial
 # dictionary), made with gmsh 4.15.2 and OpenFOAM v2412 on macOS (Apple
-# clang, libc++). OpenFOAM's Random maps Rand48 through
-# std::uniform_real_distribution, whose algorithm depends on the C++
-# standard library, so another toolchain (or another gmsh version) may
-# change these values: then regenerate them deliberately and say so.
+# clang, libc++, arm64), and reproduced bit for bit by an independent C++
+# program (a hand-written lrand48 generator and the same mapping). The
+# draws use Rand48 and an explicit mapping only (see perturbSpaceTimeMesh),
+# so they do not depend on the compiler or C++ standard library. Another
+# gmsh version (a different point order or coordinates) may change them:
+# then regenerate them deliberately and say so.
 
 echo
 echo "Stored references (Left N = 8, seed 12345)"
 newCase reference8 8 left || exit 1
 newCase seedA8 8 left perturbed || exit 1
-storedChecksum=58859dc6f9615732d85cb054cf790fdf108acedc
+storedChecksum=2f6cde4cbef57e5fa9c8c16cedeeb2b14dd55836
 storedDisplacements="\
-64 0.020959153427400817 0.011238986002440582
-65 0.020324117963486321 0.017894046645331119
-66 -0.015291613610107807 0.0012187760482917365
-67 0.022737873442462558 -0.024783023397275616
-68 -0.01246035505592144 0.0017245388043878318"
+64 -0.013733574375510219 0.020959153422154486
+65 -0.014657937339507043 0.011238985997624684
+66 0.011609957250766467 0.020324117946438514
+67 -0.0076021464541554395 0.017894046637229599
+68 -0.0042407531989738373 -0.015291613619774602"
 displacements run/reference8/$points run/seedA8/$points \
     > run/seedA8/displacements
 check "first 5 interior (point, dx, dt) equal the stored values" \

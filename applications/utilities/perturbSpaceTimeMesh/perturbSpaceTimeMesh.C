@@ -23,20 +23,37 @@ Description
     triangle mesh (CLAUDE.md section 6), as in Tufillaro et al. (2026):
     every interior node of the front triangulation (a node on no boundary
     edge, see medianDualMesh) is moved by (dx, dt), each drawn independently
-    and uniformly from [-maxFraction h, +maxFraction h], with
+    and uniformly from [-maxFraction h, +maxFraction h), with
     h = sqrt(A_domain/(nTriangles/2)). The same displacement is applied to
     the node's back point, so front and back stay paired. Boundary nodes
     are not moved.
 
-    The numbers come from OpenFOAM's Random, seeded with seed; the nodes
+    The numbers come from OpenFOAM's Rand48 generator, seeded with seed
+    (converted to a 32-bit unsigned integer, i.e. modulo 2^32); the nodes
     are visited in local (medianDualMesh) node order and dx is drawn
     before dt, so a mesh is reproduced from its seed and maxFraction.
-    Portability: Random maps its Rand48 generator (portable) through
-    std::uniform_real_distribution, whose algorithm is not fixed by the C++
-    standard, so the same seed may give a different mesh with another C++
-    standard library (e.g. libstdc++ instead of libc++). The mesh is
-    reproducible on one toolchain; tests/perturbSpaceTimeMesh stores
-    reference displacements and a checksum to detect any change.
+    Each draw maps one raw Rand48 output r (an integer in [0, 2^31 - 1]:
+    Rand48::operator() returns bits 47..17 of the 48-bit state, so 31 bits)
+    to a displacement in [-m, m), m = maxFraction h, with
+    \verbatim
+        x = r/2^31                    (exact, in [0, 1))
+        d = m (2 x - 1)               (= -m + (m - (-m)) x)
+    \endverbatim
+    2 x - 1 is exact in double precision (x has at most 31 significant
+    bits), so d is one correctly rounded IEEE-754 product and cannot be
+    changed by a fused multiply-add. Portability: Rand48 is the lrand48
+    linear congruential generator (a = 0x5DEECE66D, c = 0xB, m = 2^48,
+    initial state (seed << 16) | 0x330E) built on
+    std::linear_congruential_engine, whose output sequence is fixed exactly
+    by the C++ standard; no std distribution is used. The same seed
+    therefore gives bit-identical displacements with any conforming
+    compiler and standard library, for a given h. h is computed from the
+    mesh points by ordinary double arithmetic (medianDualMesh), which a
+    compiler may contract into fused multiply-adds; where the triangle
+    areas are exact in double precision, as on the structured test meshes
+    (h = 1/N exactly), this cannot change h.
+    tests/perturbSpaceTimeMesh stores reference displacements and a
+    checksum of the point list to detect any change.
 
     Before writing, the signed area of every triangle is recomputed: the
     utility stops with a fatal error if any sign changes or any area is
@@ -59,9 +76,26 @@ Description
 \*---------------------------------------------------------------------------*/
 
 #include "fvCFD.H"
-#include "Random.H"
+#include "Rand48.H"
 #include "pointIOField.H"
 #include "medianDualMesh.H"
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Map the next raw Rand48 output r in [0, 2^31 - 1] to a displacement in
+// [-m, m): x = r/2^31, d = m (2 x - 1). 2 x - 1 is exact, so d is a single
+// correctly rounded product, the same on every platform (see Description)
+static scalar uniformDisplacement(Rand48& generator, const scalar m)
+{
+    const double twoTo31 = 2147483648.0;
+
+    const uint32_t r = generator();
+    const double x = double(r)/twoTo31;
+    const double s = 2.0*x - 1.0;
+
+    return m*s;
+}
+
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -175,7 +209,8 @@ int main(int argc, char *argv[])
         << "    max |dx|, max |dt| allowed: maxFraction h = "
         << maxDisplacement << endl;
 
-    Random rnd(seed);
+    // The seed is converted to 32 bits (modulo 2^32), as Random does
+    Rand48 generator(static_cast<uint32_t>(seed));
 
     pointField newPoints(mesh.points());
     pointField newNodePoints(dual.points());
@@ -192,10 +227,8 @@ int main(int argc, char *argv[])
         }
 
         // dx first, then dt
-        const scalar dx =
-            rnd.position<scalar>(-maxDisplacement, maxDisplacement);
-        const scalar dt =
-            rnd.position<scalar>(-maxDisplacement, maxDisplacement);
+        const scalar dx = uniformDisplacement(generator, maxDisplacement);
+        const scalar dt = uniformDisplacement(generator, maxDisplacement);
         const vector displacement(dx, dt, 0);
 
         newNodePoints[nodei] += displacement;
