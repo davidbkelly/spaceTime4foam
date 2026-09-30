@@ -24,11 +24,11 @@
 #       - checkMesh reports "Mesh OK." (Allmesh);
 #       - Test-medianDualMesh -domainArea 1 passes on the perturbed mesh
 #         (total area unchanged, and all the geometry identities);
-#       - the same seed gives an identical points file (checksum), and a
+#       - the same seed gives an identical point list (checksum), and a
 #         different seed (Allmesh 32 left perturbed 7) a different one;
 #       - stored references on Left N = 8 with the dictionary seed: the
-#         first 5 interior (point, dx, dt) and the points checksum must equal
-#         the values stored in this script (see the note there);
+#         first 5 interior (point, dx, dt) and the point-list checksum must
+#         equal the values stored in this script (see the note there);
 #       - -maxFraction 0.1 -seed 3: the log shows these values and
 #         max |dx|, |dt| <= 0.1 h;
 #       - -maxFraction 0.6: a triangle is inverted, so the utility must stop
@@ -212,6 +212,21 @@ function independence()
     ' "$1"
 }
 
+# pointsChecksum <points file>
+# Print the SHA-1 checksum of the point list only: the list size and the
+# "(x y z)" lines between the list's parentheses, exactly as written. The
+# FoamFile header, the banner (e.g. "Version: 2412") and the arch line are
+# left out, so an OpenFOAM upgrade that changes only these does not change
+# the checksum
+function pointsChecksum()
+{
+    awk '
+        state == 0 && /^[0-9]+$/ { size = $1; state = 1; print; next }
+        state == 1 && /^\($/ { state = 2; next }
+        state == 2 && n < size { print; n++ }
+    ' "$1" | shasum | awk '{print $1}'
+}
+
 # le <a> <b>: 1 if a <= b, else 0 (floating point)
 function le()
 {
@@ -294,10 +309,9 @@ check "|correlation of dx and dt| < 0.1 (about 3 standard errors)" \
 
 echo
 echo "Reproducibility"
-sumA=$(shasum run/seedA/$points | awk '{print $1}')
-sumA2=$(shasum run/seedA2/$points | awk '{print $1}')
-sumB=$(shasum run/seedB/$points | awk '{print $1}')
-sumRef=$(shasum run/reference/$points | awk '{print $1}')
+sumA=$(pointsChecksum run/seedA/$points)
+sumA2=$(pointsChecksum run/seedA2/$points)
+sumB=$(pointsChecksum run/seedB/$points)
 echo "    checksums: seed 12345 $sumA, again $sumA2, seed 7 $sumB"
 check "same seed, identical points" "$([ "$sumA" = "$sumA2" ] && echo yes)" \
     yes
@@ -314,13 +328,14 @@ check "seed 7 in the log" \
 # draws use Rand48 and an explicit mapping only (see perturbSpaceTimeMesh),
 # so they do not depend on the compiler or C++ standard library. Another
 # gmsh version (a different point order or coordinates) may change them:
-# then regenerate them deliberately and say so.
+# then regenerate them deliberately and say so. The checksum is of the
+# point list only (pointsChecksum), not of the file header or banner.
 
 echo
 echo "Stored references (Left N = 8, seed 12345)"
 newCase reference8 8 left || exit 1
 newCase seedA8 8 left perturbed || exit 1
-storedChecksum=2f6cde4cbef57e5fa9c8c16cedeeb2b14dd55836
+storedChecksum=d76c6410a2d018656460ccb84a7d4350d50834ce
 storedDisplacements="\
 64 -0.013733574375510219 0.020959153422154486
 65 -0.014657937339507043 0.011238985997624684
@@ -332,8 +347,8 @@ displacements run/reference8/$points run/seedA8/$points \
 check "first 5 interior (point, dx, dt) equal the stored values" \
     "$(head -5 run/seedA8/displacements | tr '\n' ';')" \
     "$(echo "$storedDisplacements" | tr '\n' ';')"
-check "points checksum equals the stored value" \
-    "$(shasum run/seedA8/$points | awk '{print $1}')" "$storedChecksum"
+check "point-list checksum equals the stored value" \
+    "$(pointsChecksum run/seedA8/$points)" "$storedChecksum"
 
 
 
@@ -376,7 +391,7 @@ check "fatal error: the signed area changes" \
     "$(grep -c "the signed area changes" \
         run/inverted/log.perturbSpaceTimeMesh)" 1
 check "points file unchanged" \
-    "$(shasum run/inverted/$points | awk '{print $1}')" "$sumRef"
+    "$(cmp -s run/reference/$points run/inverted/$points && echo yes)" yes
 
 
 # Report-only smoke run: CC-2 on the perturbed mesh
