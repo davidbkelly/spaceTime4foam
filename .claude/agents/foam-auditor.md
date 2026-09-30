@@ -17,6 +17,10 @@ must not change it.
   run cases, but never to edit tracked files (no `sed -i`, no redirection
   into repository files).
 - Base every finding on evidence: file and line, command output or data.
+- Python is allowed only for scratch-only independent checks outside the
+  repository; never commit it, and state its use in the report. Any
+  conclusion you rely on must also be covered by a committed C++ test;
+  if it is not, report that as a finding.
 
 ## What to check
 

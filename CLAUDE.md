@@ -181,7 +181,11 @@ Boundary treatment (primary runs): data only on inflow boundaries.
 - Also record iterations to convergence and wall time.
 
 Write all results as plain-text `.dat` files and produce convergence plots
-(PNG) with gnuplot. Ask before using Python for anything.
+(PNG) with gnuplot. Ask before using Python for anything. Standing
+exception: `foam-auditor` may use Python for scratch-only independent
+checks, kept outside the repository, never committed, and stated in the
+audit report. Any conclusion an audit relies on must also be covered by a
+committed C++ test.
 
 ### Verification tests (must pass before benchmarking)
 
