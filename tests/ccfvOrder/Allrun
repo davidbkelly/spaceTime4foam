@@ -111,6 +111,9 @@ do
             "$caseDir"/
         cp -r "$meshDir"/constant/polyMesh "$caseDir"/constant/
 
+        # Nominal h = 1/N (last column of errors.dat)
+        nominalH=$(awk -v N="$N" 'BEGIN { printf "%.17g", 1/N }')
+
         echo "Running $scheme on N = $N"
         (
             cd "$caseDir" || exit 1
@@ -125,7 +128,7 @@ do
                     || exit 1
             done
             runApplication spaceTime4Foam || exit 1
-            runApplication spaceTimeErrors || exit 1
+            runApplication spaceTimeErrors -nominalH "$nominalH" || exit 1
         )
         status=$?
 
@@ -147,7 +150,7 @@ do
         nColumns=$(echo "$errors" | awk '{print NF}')
 
         if [[ $status -ne 0 ]] || [ "$converged" != "1" ] \
-            || [ "$nColumns" != "20" ]
+            || [ "$nColumns" != "21" ]
         then
             echo "    FAIL: $scheme N = $N (exit status $status," \
                 "converged '$converged', $nColumns error columns)"

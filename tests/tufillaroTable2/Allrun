@@ -150,6 +150,8 @@ do
     do
         name="${solution}_mesh$n"
         caseDir="run/$name"
+        # Nominal h = 1/2^n (last column of errors.dat)
+        nominalH=$(awk -v n="$n" 'BEGIN { printf "%.17g", 1/2^n }')
         echo "Running $solution on mesh $n"
         mkdir -p "$caseDir"
         cp -r "$tutorialDir"/constant "$tutorialDir"/system "$caseDir"/
@@ -174,7 +176,7 @@ do
                     -set "${entry#* }" > /dev/null || exit 1
             done
             runApplication spaceTime4Foam || exit 1
-            runApplication spaceTimeErrors || exit 1
+            runApplication spaceTimeErrors -nominalH "$nominalH" || exit 1
             if [ "$n" = "0" ]
             then
                 runApplication Test-tufillaroMesh0 || exit 2
@@ -212,10 +214,11 @@ do
             continue
         fi
 
-        # solution n h nNodes, info (4 columns), maxError (column 8)
+        # solution n h nNodes, info (4 columns), maxError (column 8);
+        # h is the nominal h = 1/2^n of errors.dat (column 19)
         echo "$solution $n $info $errors" | awk '{
             printf "%s %s %.6g %s %s %s %s %s %s\n", \
-                $1, $2, 1/2^$2, $24, $3, $4, $5, $6, $14
+                $1, $2, $25, $24, $3, $4, $5, $6, $14
         }' >> "$resultFile"
     done
 done

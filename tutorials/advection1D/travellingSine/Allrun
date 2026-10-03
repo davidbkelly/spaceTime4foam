@@ -27,6 +27,8 @@ cd "${0%/*}" || exit  # Run from this directory
 
 runApplication "$(getApplication)" || exit 1
 
-runApplication spaceTimeErrors || exit 1
+# Nominal h = 1/N of the N x N mesh (default N = 8, as in Allmesh)
+nominalH=$(awk -v N="${1:-8}" 'BEGIN { printf "%.17g", 1/N }')
+runApplication spaceTimeErrors -nominalH "$nominalH" || exit 1
 
 #------------------------------------------------------------------------------

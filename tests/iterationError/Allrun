@@ -92,7 +92,7 @@ do
             foamDictionary system/fvSchemes -entry "divSchemes/div(phiST,u)" \
                 -set "Gauss linearUpwind grad(u)" > /dev/null || exit 1
             runApplication spaceTime4Foam || exit 1
-            runApplication spaceTimeErrors || exit 1
+            runApplication spaceTimeErrors -nominalH 0.015625 || exit 1
         )
         status=$?
 

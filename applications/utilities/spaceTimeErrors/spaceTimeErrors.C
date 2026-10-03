@@ -66,6 +66,13 @@ Description
     - nUnknowns is the number of nodes for boundaryTreatment weak and the
       number of interior nodes for strong (vertexCentredCoeffs).
 
+    Nominal h: the optional argument -nominalH <h> is written as the last
+    column (CCFV column 21, VCFV column 19), e.g. 1/N for the N x N
+    benchmark meshes and 1/2^n for mesh n of the Tufillaro et al. family
+    (whose area-based h above is about 0.707/2^n). The two differ by a
+    constant factor on a mesh family, so observed orders do not depend on
+    the choice. Without the option the column is nan and a note is printed.
+
     Output: postProcessing/spaceTimeErrors/errors.dat (one data line; the
     commented header names the columns, which differ between the methods
     after column 14) and a summary on screen.
@@ -79,6 +86,7 @@ Description
 #include "medianDualMesh.H"
 #include "pointFields.H"
 #include "pointMesh.H"
+#include "StringStream.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -165,11 +173,44 @@ int main(int argc, char *argv[])
 
     timeSelector::addOptions_singleTime();
 
+    argList::addOption
+    (
+        "nominalH",
+        "h",
+        "Nominal mesh size of the mesh family (e.g. 1/N), written as the"
+        " last column"
+    );
+
     // Only serial runs have been tested
     argList::noParallel();
 
 #   include "setRootCase.H"
 #   include "createTime.H"
+
+    // Nominal h of the mesh family (optional), written as the last column
+    string nominalHString("nan");
+
+    if (args.found("nominalH"))
+    {
+        const scalar nominalH = args.get<scalar>("nominalH");
+
+        if (nominalH <= 0)
+        {
+            FatalErrorInFunction
+                << "-nominalH must be positive, not " << nominalH
+                << exit(FatalError);
+        }
+
+        OStringStream nominalHStream;
+        nominalHStream.precision(10);
+        nominalHStream << nominalH;
+        nominalHString = nominalHStream.str();
+    }
+    else
+    {
+        Info<< "Note: no -nominalH given: the nominal-h column is nan" << nl
+            << endl;
+    }
 
     // Latest time by default
     if (!timeSelector::setTimeIfPresent(runTime, args))
@@ -498,6 +539,7 @@ int main(int argc, char *argv[])
     // Summary
 
     Info<< "Method " << method << ", h = " << h
+        << ", nominal h = " << nominalHString.c_str()
         << ", nUnknowns = " << nUnknowns
         << ", domain area = " << domainArea << endl;
 
@@ -560,7 +602,8 @@ int main(int argc, char *argv[])
             << "#  9-11 L1 L2 Linf over interior nodes" << nl
             << "# 12-14 L1 L2 Linf over boundary nodes" << nl
             << "# 15-17 L1 L2 Linf on tEnd, nodal value" << nl
-            << "# 18    nNodes" << nl;
+            << "# 18    nNodes" << nl
+            << "# 19    nominal h (-nominalH)" << nl;
 
         os  << method << " " << h << " " << nUnknowns << " "
             << interiorNorms.n << " " << boundaryNorms.n << " ";
@@ -568,7 +611,7 @@ int main(int argc, char *argv[])
         writeNorms(os, interiorNorms) << " ";
         writeNorms(os, boundaryNorms) << " ";
         writeNorms(os, tEndNodalNorms) << " ";
-        os  << nNodes << nl;
+        os  << nNodes << " " << nominalHString.c_str() << nl;
     }
     else
     {
@@ -576,7 +619,8 @@ int main(int argc, char *argv[])
             << "#  9-11 L1 L2 Linf over interior unknowns" << nl
             << "# 12-14 L1 L2 Linf over boundary unknowns" << nl
             << "# 15-17 L1 L2 Linf on tEnd, extrapolated face value" << nl
-            << "# 18-20 L1 L2 Linf on tEnd, cell value" << nl;
+            << "# 18-20 L1 L2 Linf on tEnd, cell value" << nl
+            << "# 21    nominal h (-nominalH)" << nl;
 
         os  << method << " " << h << " " << nUnknowns << " "
             << interiorNorms.n << " " << boundaryNorms.n << " ";
@@ -584,7 +628,7 @@ int main(int argc, char *argv[])
         writeNorms(os, interiorNorms) << " ";
         writeNorms(os, boundaryNorms) << " ";
         writeNorms(os, tEndExtrapolatedNorms) << " ";
-        writeNorms(os, tEndCellNorms) << nl;
+        writeNorms(os, tEndCellNorms) << " " << nominalHString.c_str() << nl;
     }
 
     Info<< "Written " << os.name() << nl << nl << "End" << nl << endl;

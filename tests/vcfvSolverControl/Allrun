@@ -105,7 +105,7 @@ setupCase "$caseDir"
 (
     cd "$caseDir" || exit 1
     runApplication spaceTime4Foam || exit 1
-    runApplication spaceTimeErrors || exit 2
+    runApplication spaceTimeErrors -nominalH 0.0625 || exit 2
     runApplication foamToVTK -latestTime -ascii || exit 3
 )
 status=$?
