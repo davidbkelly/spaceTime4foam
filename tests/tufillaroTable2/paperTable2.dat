@@ -1,0 +1,14 @@
+# Tufillaro, Williams and Nishikawa (2026), Int. J. Numer. Meth. Fluids,
+# doi:10.1002/fld.70084, Table 2: maximum nodal error and slope of the 2D
+# edge-based scheme (VC-2, strong Dirichlet data on all sides), meshes of
+# Table 1, h = 1/2^n. Copied from the PDF (refs/TufillaroWilliamsNishikawa.pdf,
+# page 17); a slope of - is not defined on mesh 0.
+# u1 = x^2 + x y + y^2 (symmetric quadratic), u2 = 3 x^2 + 5 y^2 (quadratic),
+# u3 = exp(0.1 (x + y)) (exponential)
+# n h e_u1 slope_u1 e_u2 slope_u2 e_u3 slope_u3
+0 1.0 5.49e-1 - 2.00e0 - 3.10e-3 -
+1 0.5 1.41e-1 1.97 5.42e-1 1.88 7.92e-4 1.97
+2 0.25 3.78e-2 1.90 1.47e-1 1.88 2.14e-4 1.89
+3 0.125 9.00e-3 2.07 3.61e-2 2.03 5.00e-5 2.10
+4 0.0625 2.30e-3 1.97 9.37e-3 1.95 1.28e-5 1.97
+5 0.03125 5.95e-4 1.95 2.54e-3 1.88 3.30e-6 1.96

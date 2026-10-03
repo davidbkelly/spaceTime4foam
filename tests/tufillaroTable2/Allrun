@@ -1,0 +1,286 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/tufillaroTable2/Allrun
+#
+# Description
+#     Reproduction of Table 2 of Tufillaro, Williams and Nishikawa (2026)
+#     (CLAUDE.md section 6, verification test 6) with VC-2: the 2D
+#     manufactured solutions u1 (mmsSymmetricQuadratic), u2 (mmsQuadratic)
+#     and u3 (mmsExponential, k = 0.1) with A = (1, 1), strong Dirichlet data
+#     on all sides, interior nodes initialised with the exact solution,
+#     two-stage Runge-Kutta at CFL 0.5, converged to an RMS of Res_j/V_j of
+#     1e-12 (tighter than the default 1e-10, to sharpen the mesh-0 check).
+#
+#     Meshes: n = 0 to 5 of their Table 1, written by tufillaroMesh.awk
+#     (mesh 0: the square split by both diagonals; each refinement splits
+#     every triangle into 4 at its edge midpoints), h = 1/2^n.
+#
+#     HARD checks (the test fails if one fails):
+#       - every mesh imports, passes checkMesh and Test-medianDualMesh
+#         (the geometry identities), has the Table 1 counts (4, 16, 64,
+#         256, 1024, 4096 triangles; 5, 13, 41, 145, 545, 2113 nodes) and
+#         2^n boundary edges on each side;
+#       - every run converges;
+#       - mesh 0: the converged centre value equals the closed form of
+#         Test-tufillaroMesh0 to 1e-10, for u1, u2 and u3.
+#     REPORT ONLY: the maximum nodal error and the slope
+#     log(e_(n-1)/e_n)/log(2) of every run, next to the published values
+#     (paperTable2.dat), with the relative difference (ours - paper)/paper.
+#     The published errors have 3 significant digits, so a relative
+#     difference up to about 0.5e-2 (half a unit in the last digit) is
+#     rounding.
+#
+#     Output (in run/): tufillaroTable2.dat.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+for app in spaceTime4Foam spaceTimeErrors Test-medianDualMesh \
+    Test-tufillaroMesh0
+do
+    if ! command -v "$app" > /dev/null 2>&1
+    then
+        echo "$app not found: run ./Allwmake first"
+        exit 1
+    fi
+done
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+meshNumbers="0 1 2 3 4 5"
+solutions="mmsSymmetricQuadratic mmsQuadratic mmsExponential"
+
+# Table 1 of the paper, by mesh number
+nTrianglesTable1=(4 16 64 256 1024 4096)
+nNodesTable1=(5 13 41 145 545 2113)
+
+nFailed=0
+failedRuns=""
+
+# fail <name> <message>
+function fail()
+{
+    echo "    FAIL: $1: $2"
+    nFailed=$((nFailed + 1))
+    failedRuns="$failedRuns $1"
+}
+
+rm -rf run
+mkdir run
+
+
+# Meshes
+
+for n in $meshNumbers
+do
+    meshDir="run/mesh$n"
+    echo "Mesh $n"
+    mkdir -p "$meshDir"
+    cp -r "$tutorialDir"/system "$meshDir"/
+
+    (
+        cd "$meshDir" || exit 1
+        awk -v n="$n" -f ../../tufillaroMesh.awk > mesh.msh || exit 1
+        runApplication gmshToFoam mesh.msh > /dev/null || exit 1
+        runApplication foamDictionary constant/polyMesh/boundary \
+            -entry entry0/frontAndBack/type -set empty > /dev/null || exit 1
+        runApplication checkMesh > /dev/null || exit 1
+        grep -q "^Mesh OK." log.checkMesh || exit 1
+        Test-medianDualMesh -domainArea 1 > log.Test-medianDualMesh 2>&1
+    )
+    status=$?
+    if [[ $status -ne 0 ]]
+    then
+        fail "mesh$n" \
+            "meshing, checkMesh or Test-medianDualMesh (see $meshDir)"
+        continue
+    fi
+    echo "    PASS: mesh$n: checkMesh and Test-medianDualMesh"
+
+    logFile="$meshDir/log.Test-medianDualMesh"
+    nTriangles=$(awk '/^ *triangles:/ {print $2; exit}' "$logFile")
+    nNodes=$(awk '/^ *nodes:/ {print $2; exit}' "$logFile")
+    if [ "$nTriangles" = "${nTrianglesTable1[$n]}" ] \
+        && [ "$nNodes" = "${nNodesTable1[$n]}" ]
+    then
+        echo "    PASS: mesh$n: $nTriangles triangles and $nNodes nodes" \
+            "(Table 1)"
+    else
+        fail "mesh$n" "$nTriangles triangles and $nNodes nodes, Table 1:" \
+            "${nTrianglesTable1[$n]} and ${nNodesTable1[$n]}"
+    fi
+
+    nSide=$((2**n))
+    for patch in tStart tEnd xLeft xRight
+    do
+        nEdges=$(grep "boundary edges on patch $patch " "$logFile" \
+            | awk '{print $NF}')
+        if [ "$nEdges" != "$nSide" ]
+        then
+            fail "mesh$n" "'$nEdges' boundary edges on $patch, expected $nSide"
+        fi
+    done
+done
+
+
+# Runs
+
+resultFile=run/tufillaroTable2.dat
+{
+    echo "# VC-2, strong Dirichlet data, Tufillaro et al. Table 1 meshes"
+    echo "# (tests/tufillaroTable2); maxError = maximum nodal error"
+    echo "# solution n h=1/2^n nNodes nIter converged finalResidual" \
+        "wallTime[s] maxError"
+} > "$resultFile"
+
+for solution in $solutions
+do
+    for n in $meshNumbers
+    do
+        name="${solution}_mesh$n"
+        caseDir="run/$name"
+        echo "Running $solution on mesh $n"
+        mkdir -p "$caseDir"
+        cp -r "$tutorialDir"/constant "$tutorialDir"/system "$caseDir"/
+        cp -r "run/mesh$n"/constant/polyMesh "$caseDir"/constant/
+
+        (
+            cd "$caseDir" || exit 1
+            props=constant/spaceTimeProperties
+            foamDictionary "$props" -entry spaceTimeModel \
+                -set vertexCentred > /dev/null || exit 1
+            foamDictionary "$props" -entry a -set 1 > /dev/null || exit 1
+            foamDictionary "$props" -entry convergenceTolerance \
+                -set 1e-12 > /dev/null || exit 1
+            foamDictionary "$props" -entry analyticalSolution \
+                -set "{ type $solution; }" > /dev/null || exit 1
+            for entry in "reconstruction linear" \
+                "boundaryTreatment strong" "CFL 0.5" \
+                "initialisation analytical"
+            do
+                foamDictionary "$props" \
+                    -entry "vertexCentredCoeffs/${entry%% *}" \
+                    -set "${entry#* }" > /dev/null || exit 1
+            done
+            runApplication spaceTime4Foam || exit 1
+            runApplication spaceTimeErrors || exit 1
+            if [ "$n" = "0" ]
+            then
+                runApplication Test-tufillaroMesh0 || exit 2
+            fi
+        )
+        status=$?
+
+        if [[ $status -eq 2 ]]
+        then
+            fail "$name" "Test-tufillaroMesh0 (see $caseDir)"
+        elif [[ $n -eq 0 ]] && [[ $status -eq 0 ]]
+        then
+            echo "    PASS: $name: closed form"
+            grep "u_c (\|PASS\|FAIL" "$caseDir/log.Test-tufillaroMesh0"
+        fi
+
+        infoFile="$caseDir/postProcessing/spaceTimeSolverInfo.dat"
+        errorFile="$caseDir/postProcessing/spaceTimeErrors/errors.dat"
+        info=""
+        if [ -f "$infoFile" ]
+        then
+            info=$(grep -v '^#' "$infoFile" | tail -1)
+        fi
+        errors=""
+        if [ -f "$errorFile" ]
+        then
+            errors=$(grep -v '^#' "$errorFile" | tail -1)
+        fi
+        converged=$(echo "$info" | awk '{print $2}')
+
+        if [[ $status -eq 1 ]] || [ "$converged" != "1" ] \
+            || [ -z "$errors" ]
+        then
+            fail "$name" "exit status $status, converged '$converged'"
+            continue
+        fi
+
+        # solution n h nNodes, info (4 columns), maxError (column 8)
+        echo "$solution $n $info $errors" | awk '{
+            printf "%s %s %.6g %s %s %s %s %s %s\n", \
+                $1, $2, 1/2^$2, $24, $3, $4, $5, $6, $14
+        }' >> "$resultFile"
+    done
+done
+
+
+# Comparison with the paper (report only)
+
+echo
+echo "Ours against Tufillaro et al. Table 2 (REPORT ONLY). rel = (ours -" \
+    "paper)/paper;"
+echo "the paper's errors have 3 significant digits (|rel| < ~5e-3 is" \
+    "rounding)."
+awk '
+    # paperTable2.dat: n h e1 s1 e2 s2 e3 s3
+    FNR == NR {
+        if ($1 !~ /^#/)
+        {
+            for (k = 1; k <= 3; k++)
+            {
+                paperE[k, $1] = $(1 + 2*k)
+                paperS[k, $1] = $(2 + 2*k)
+            }
+        }
+        next
+    }
+    /^#/ { next }
+    {
+        k = ($1 == "mmsSymmetricQuadratic") ? 1 \
+            : ($1 == "mmsQuadratic") ? 2 : 3
+        e[k, $2] = $9; nIter[k, $2] = $5; has[k, $2] = 1
+    }
+    END {
+        label[1] = "u1"; label[2] = "u2"; label[3] = "u3"
+        printf "    %-3s %2s %8s %10s %10s %9s %6s %6s %7s %5s\n", \
+            "u", "n", "h", "ours", "paper", "rel", "slope", "paper", \
+            "diff", "nIter"
+        for (k = 1; k <= 3; k++)
+        {
+            for (n = 0; n <= 5; n++)
+            {
+                if (!has[k, n]) { continue }
+                rel = (e[k, n] - paperE[k, n])/paperE[k, n]
+                if (n > 0 && has[k, n - 1])
+                {
+                    s = log(e[k, n - 1]/e[k, n])/log(2)
+                    slope = sprintf("%.2f", s)
+                    diff = sprintf("%+.2f", s - paperS[k, n])
+                }
+                else
+                {
+                    slope = "-"; diff = "-"
+                }
+                format = "    %-3s %2d %8.5f %10.4e %10s %+9.2e"
+                format = format " %6s %6s %7s %5d\n"
+                printf format, \
+                    label[k], n, 1/2^n, e[k, n], paperE[k, n], rel, slope, \
+                    paperS[k, n], diff, nIter[k, n]
+            }
+        }
+    }
+' paperTable2.dat "$resultFile"
+echo
+
+if [[ $nFailed -gt 0 ]]
+then
+    echo "tufillaroTable2: $nFailed check(s) FAILED:$failedRuns"
+    exit 1
+fi
+
+echo "tufillaroTable2: all hard checks passed (the comparison is report-only)"
+
+#------------------------------------------------------------------------------
