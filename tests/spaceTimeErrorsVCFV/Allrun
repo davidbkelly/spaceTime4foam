@@ -1,0 +1,141 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/spaceTimeErrorsVCFV/Allrun
+#
+# Description
+#     Known-answer test of the vertexCentred branch of spaceTimeErrors, on
+#     the perturbed Left mesh N = 4 (non-uniform dual areas) with
+#     travellingSine. Test-spaceTimeErrors writes u = u_exact + delta at
+#     time 1 and expected.dat, computed without spaceTimeErrors and without
+#     medianDualMesh (see its description); it also checks that the t = T
+#     weights sum to the tEnd length 1. spaceTimeErrors -nominalH 0.25 is
+#     then run with boundaryTreatment weak and strong, and errors.dat must
+#     have:
+#       - nInterior, nBoundary and nNodes (columns 4, 5, 18) equal to the
+#         expected counts;
+#       - nUnknowns (column 3) = nNodes for weak and nInterior for strong;
+#       - the 12 norms (columns 6-17: all, interior, boundary and t = T
+#         nodes) equal to the expected values to a relative 1e-8
+#         (errors.dat has 10 significant digits);
+#       - the nominal h (column 19) equal to 0.25.
+#     Exits with a non-zero status if a run or a check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+for app in spaceTimeErrors Test-spaceTimeErrors
+do
+    if ! command -v "$app" > /dev/null 2>&1
+    then
+        echo "$app not found: run ./Allwmake first"
+        exit 1
+    fi
+done
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+caseDir=run/case
+
+nFailed=0
+
+rm -rf run
+mkdir -p "$caseDir"
+cp -r "$tutorialDir"/constant "$tutorialDir"/system "$tutorialDir"/gmsh \
+    "$tutorialDir"/Allmesh "$caseDir"/
+
+if ! "$caseDir"/Allmesh 4 left perturbed > "$caseDir"/log.Allmesh 2>&1
+then
+    echo "FAIL: Allmesh (see $caseDir/log.Allmesh)"
+    exit 1
+fi
+
+(
+    cd "$caseDir" || exit 1
+    foamDictionary constant/spaceTimeProperties -entry spaceTimeModel \
+        -set vertexCentred > /dev/null 2>&1 || exit 1
+    runApplication Test-spaceTimeErrors -tEndLength 1
+)
+status=$?
+grep -E "nNodes|weights|FAIL" "$caseDir/log.Test-spaceTimeErrors"
+if [[ $status -ne 0 ]] || [ ! -s "$caseDir/expected.dat" ]
+then
+    echo "    FAIL: Test-spaceTimeErrors (see $caseDir)"
+    exit 1
+fi
+echo "    PASS: Test-spaceTimeErrors (t = T weights sum to 1)"
+
+expected=$(grep -v '^#' "$caseDir/expected.dat")
+
+for boundary in weak strong
+do
+    echo "boundaryTreatment $boundary"
+    (
+        cd "$caseDir" || exit 1
+        foamDictionary constant/spaceTimeProperties \
+            -entry vertexCentredCoeffs/boundaryTreatment -set "$boundary" \
+            > /dev/null 2>&1 || exit 1
+        runApplication -o spaceTimeErrors -time 1 -nominalH 0.25
+    )
+    status=$?
+    errorFile="$caseDir/postProcessing/spaceTimeErrors/errors.dat"
+    if [[ $status -ne 0 ]] || [ ! -s "$errorFile" ]
+    then
+        echo "    FAIL: spaceTimeErrors (see $caseDir/log.spaceTimeErrors)"
+        nFailed=$((nFailed + 1))
+        continue
+    fi
+
+    # expected: nNodes nInterior nBoundary nUnknownsWeak nUnknownsStrong
+    # and 12 norms; actual: the errors.dat data line
+    if ! echo "$expected $(grep -v '^#' "$errorFile")" \
+        | awk -v bnd="$boundary" '
+        function report(what, actual, wanted, ok)
+        {
+            printf "    %s: %s: %s, expected %s\n", \
+                ok ? "PASS" : "FAIL", what, actual, wanted
+            if (!ok) { nBad++ }
+        }
+        {
+            # $1-$17 expected, $18-$36 errors.dat (column c is $(17 + c))
+            nUnknowns = (bnd == "weak") ? $4 : $5
+            report("nUnknowns (column 3)", $20, nUnknowns, $20 == nUnknowns)
+            report("nInterior (column 4)", $21, $2, $21 == $2)
+            report("nBoundary (column 5)", $22, $3, $22 == $3)
+            report("nNodes (column 18)", $35, $1, $35 == $1)
+            report("nominal h (column 19)", $36, 0.25, $36 == 0.25)
+            maxRel = 0
+            for (c = 6; c <= 17; c++)
+            {
+                actual = $(17 + c); wanted = $(c)
+                rel = (actual - wanted)/wanted
+                if (rel < 0) { rel = -rel }
+                if (rel > maxRel) { maxRel = rel }
+                report("norm column " c, actual, wanted, rel <= 1e-8)
+            }
+            printf "    largest relative difference of the norms %.2e\n", \
+                maxRel
+            exit (nBad > 0)
+        }'
+    then
+        nFailed=$((nFailed + 1))
+    fi
+done
+
+echo
+
+if [[ $nFailed -gt 0 ]]
+then
+    echo "spaceTimeErrorsVCFV: $nFailed check(s) FAILED"
+    exit 1
+fi
+
+echo "spaceTimeErrorsVCFV: all checks passed"
+
+#------------------------------------------------------------------------------
