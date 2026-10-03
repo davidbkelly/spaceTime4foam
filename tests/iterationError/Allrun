@@ -1,0 +1,161 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/iterationError/Allrun
+#
+# Description
+#     Iteration-error check (CLAUDE.md section 7, S4 decisions): CCFV and
+#     VCFV stop on different residuals, so on one fine mesh per method the
+#     case is run with convergenceTolerance 1e-10 (the default) and with
+#     1e-12 (100 times tighter), and every error norm written by
+#     spaceTimeErrors must be unchanged in the reported digits.
+#
+#     Runs: travellingSine on the Left mesh N = 64 with
+#       CC-2  cellCentred, Gauss linearUpwind grad(u) (the tutorial case)
+#       VC-2  vertexCentred, reconstruction linear, weak boundary treatment
+#
+#     Reported digits: 4 significant digits, the printf format %.3e used
+#     for the result tables. A norm passes if its %.3e strings are
+#     identical for the two tolerances. Compared: every norm column of
+#     errors.dat (CCFV columns 6-20, VCFV columns 6-17). The largest
+#     relative difference |e_1e-10 - e_1e-12|/e_1e-12 of each method is
+#     also printed. Exits with a non-zero status if a run fails or does not
+#     converge, or if a norm differs in the reported digits.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+N=64
+
+nFailed=0
+failedRuns=""
+
+# fail <name> <message>
+function fail()
+{
+    echo "    FAIL: $1: $2"
+    nFailed=$((nFailed + 1))
+    failedRuns="$failedRuns $1"
+}
+
+rm -rf run
+mkdir run
+
+meshDir="run/mesh_N$N"
+mkdir -p "$meshDir"
+cp -r "$tutorialDir"/gmsh "$tutorialDir"/system "$tutorialDir"/Allmesh \
+    "$meshDir"/
+if ! "$meshDir"/Allmesh "$N" left > "$meshDir"/log.Allmesh 2>&1
+then
+    echo "FAIL: Allmesh $N (see $meshDir/log.Allmesh)"
+    exit 1
+fi
+
+for scheme in CC-2 VC-2
+do
+    case "$scheme" in
+    CC-2) model=cellCentred; lastColumn=20 ;;
+    VC-2) model=vertexCentred; lastColumn=17 ;;
+    esac
+
+    for tolerance in 1e-10 1e-12
+    do
+        name="${scheme}_tol$tolerance"
+        caseDir="run/$name"
+        mkdir -p "$caseDir"
+        cp -r "$tutorialDir"/0 "$tutorialDir"/constant "$tutorialDir"/system \
+            "$caseDir"/
+        cp -r "$meshDir"/constant/polyMesh "$caseDir"/constant/
+
+        echo "Running $scheme on N = $N with convergenceTolerance $tolerance"
+        (
+            cd "$caseDir" || exit 1
+            props=constant/spaceTimeProperties
+            foamDictionary "$props" -entry spaceTimeModel \
+                -set "$model" > /dev/null || exit 1
+            foamDictionary "$props" -entry convergenceTolerance \
+                -set "$tolerance" > /dev/null || exit 1
+            foamDictionary "$props" \
+                -entry vertexCentredCoeffs/reconstruction \
+                -set linear > /dev/null || exit 1
+            foamDictionary "$props" \
+                -entry vertexCentredCoeffs/boundaryTreatment \
+                -set weak > /dev/null || exit 1
+            foamDictionary system/fvSchemes -entry "divSchemes/div(phiST,u)" \
+                -set "Gauss linearUpwind grad(u)" > /dev/null || exit 1
+            runApplication spaceTime4Foam || exit 1
+            runApplication spaceTimeErrors || exit 1
+        )
+        status=$?
+
+        info=$(grep -v '^#' \
+            "$caseDir/postProcessing/spaceTimeSolverInfo.dat" 2> /dev/null)
+        converged=$(echo "$info" | awk '{print $2}')
+        if [[ $status -ne 0 ]] || [ "$converged" != "1" ]
+        then
+            fail "$name" "exit status $status, converged '$converged'"
+            continue
+        fi
+        echo "    nIterations, converged, final residual, wall time: $info"
+    done
+
+    errors10="run/${scheme}_tol1e-10/postProcessing/spaceTimeErrors/errors.dat"
+    errors12="run/${scheme}_tol1e-12/postProcessing/spaceTimeErrors/errors.dat"
+    if [ ! -f "$errors10" ] || [ ! -f "$errors12" ]
+    then
+        fail "$scheme" "missing errors.dat"
+        continue
+    fi
+
+    # Compare columns 6 to lastColumn, %.3e strings and relative difference
+    echo "  $scheme: norms (columns 6-$lastColumn of errors.dat) at the two" \
+        "tolerances:"
+    paste <(grep -v '^#' "$errors10") <(grep -v '^#' "$errors12") \
+    | awk -v last="$lastColumn" '
+        {
+            n = NF/2
+            nDiffer = 0
+            maxRel = 0
+            for (i = 6; i <= last; i++)
+            {
+                a = $i; b = $(i + n)
+                sa = sprintf("%.3e", a); sb = sprintf("%.3e", b)
+                rel = (b != 0) ? (a - b)/b : a - b
+                if (rel < 0) { rel = -rel }
+                if (rel > maxRel) { maxRel = rel }
+                flag = (sa == sb) ? "same" : "DIFFERENT"
+                if (sa != sb) { nDiffer++ }
+                printf "    column %2d: %s %s  rel %.2e  %s\n", \
+                    i, sa, sb, rel, flag
+            }
+            printf "    largest relative difference %.2e\n", maxRel
+            exit (nDiffer > 0)
+        }'
+    compareStatus=$?
+    if [[ $compareStatus -ne 0 ]]
+    then
+        fail "$scheme" "a norm differs in the reported digits (%.3e)"
+    else
+        echo "    PASS: $scheme: every norm unchanged in 4 significant digits"
+    fi
+done
+
+echo
+
+if [[ $nFailed -gt 0 ]]
+then
+    echo "iterationError: $nFailed check(s) FAILED:$failedRuns"
+    exit 1
+fi
+
+echo "iterationError: all checks passed"
+
+#------------------------------------------------------------------------------
