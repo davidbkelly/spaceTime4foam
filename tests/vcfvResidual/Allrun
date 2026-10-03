@@ -1,0 +1,193 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/vcfvResidual/Allrun
+#
+# Description
+#     Unit checks of the vertexCentred residual with
+#     Test-vertexCentredResidual (see its description):
+#       1. -reference: the residual of the model equals an independent
+#          residual computed in the test (node loop, its own LSQ by Cramer's
+#          rule, reconstruction, upwind flux, weak boundary fluxes, source,
+#          strong treatment) at every node, to 100 eps |A| max|u|/h (times
+#          V_j), for VC-1 and VC-2, weak and strong boundary treatment, with
+#          u = exp(2 (x + t)) (mmsExponential, k = 2, with its source) plus
+#          0.1 sin(37 x + 23 t), on the Left, Right and perturbed Left
+#          meshes (N = 8 and 32) and the unstructured mesh of
+#          tests/medianDualIdentities.
+#       2. -quadratic: for u = 3 x^2 + 5 t^2 (mmsQuadratic) with VC-2 and
+#          weak treatment, at the nodes where the LSQ gradient is exact at
+#          both ends of every edge (point-symmetric stencils), Res_j equals
+#          the central sum computed from the exact gradient. Structured Left
+#          and Right meshes only (the others have no symmetric stencils).
+#     A table per mesh is printed at the end. Exits with a non-zero status
+#     if a run or a check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+if ! command -v Test-vertexCentredResidual > /dev/null 2>&1
+then
+    echo "Test-vertexCentredResidual not found: run ./Allwmake first"
+    exit 1
+fi
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+geoFile=../medianDualIdentities/unstructuredSquare.geo
+
+nFailed=0
+nPassed=0
+failedRuns=""
+
+# fail <name> <message>
+function fail()
+{
+    echo "    FAIL: $1: $2"
+    nFailed=$((nFailed + 1))
+    failedRuns="$failedRuns $1"
+}
+
+# makeMesh <name>: create run/mesh_<name>/constant/polyMesh, where name is
+# left_N<N>, right_N<N>, leftPerturbed_N<N> or unstructured
+function makeMesh()
+{
+    local name="$1" meshDir="run/mesh_$1" N
+    mkdir -p "$meshDir"
+    cp -r "$tutorialDir"/system "$meshDir"/
+
+    if [ "$name" = "unstructured" ]
+    then
+        cp "$geoFile" "$meshDir"/
+        (
+            cd "$meshDir" || exit 1
+            gmsh -3 -format msh22 -o unstructuredSquare.msh \
+                unstructuredSquare.geo > log.gmsh 2>&1 || exit 1
+            runApplication gmshToFoam unstructuredSquare.msh > /dev/null \
+                || exit 1
+            runApplication foamDictionary constant/polyMesh/boundary \
+                -entry entry0/frontAndBack/type -set empty > /dev/null \
+                || exit 1
+        )
+        return $?
+    fi
+
+    N="${name##*_N}"
+    cp -r "$tutorialDir"/gmsh "$tutorialDir"/Allmesh "$meshDir"/
+    case "$name" in
+    left_N*) "$meshDir"/Allmesh "$N" left > "$meshDir"/log.Allmesh 2>&1 ;;
+    right_N*) "$meshDir"/Allmesh "$N" right > "$meshDir"/log.Allmesh 2>&1 ;;
+    leftPerturbed_N*)
+        "$meshDir"/Allmesh "$N" left perturbed > "$meshDir"/log.Allmesh 2>&1
+        ;;
+    *) return 1 ;;
+    esac
+}
+
+rm -rf run
+mkdir run
+
+meshes="left_N8 right_N8 leftPerturbed_N8 left_N32 right_N32"
+meshes="$meshes leftPerturbed_N32 unstructured"
+
+# runTest <mesh> <name> <mode> <solution> <reconstruction> <boundary>
+function runTest()
+{
+    local mesh="$1" name="$2" mode="$3" solution="$4"
+    local reconstruction="$5" boundary="$6" caseDir="run/$2"
+    mkdir -p "$caseDir"
+    cp -r "$tutorialDir"/constant "$tutorialDir"/system "$caseDir"/
+    cp -r "run/mesh_$mesh"/constant/polyMesh "$caseDir"/constant/
+
+    (
+        cd "$caseDir" || exit 1
+        props=constant/spaceTimeProperties
+        foamDictionary "$props" -entry spaceTimeModel \
+            -set vertexCentred > /dev/null 2>&1 || exit 1
+        foamDictionary "$props" -entry analyticalSolution \
+            -set "$solution" > /dev/null 2>&1 || exit 1
+        foamDictionary "$props" -entry vertexCentredCoeffs/reconstruction \
+            -set "$reconstruction" > /dev/null 2>&1 || exit 1
+        foamDictionary "$props" \
+            -entry vertexCentredCoeffs/boundaryTreatment \
+            -set "$boundary" > /dev/null 2>&1 || exit 1
+        Test-vertexCentredResidual "$mode" \
+            > log.Test-vertexCentredResidual 2>&1
+    )
+    local status=$?
+
+    grep "FAIL" "$caseDir/log.Test-vertexCentredResidual"
+    if [[ $status -ne 0 ]]
+    then
+        fail "$name" "Test-vertexCentredResidual (see $caseDir/log.*)"
+    else
+        echo "    PASS: $name"
+        nPassed=$((nPassed + 1))
+    fi
+}
+
+for mesh in $meshes
+do
+    echo "Mesh $mesh"
+    if ! makeMesh "$mesh"
+    then
+        fail "$mesh" "meshing (see run/mesh_$mesh)"
+        continue
+    fi
+
+    for reconstruction in none linear
+    do
+        for boundary in weak strong
+        do
+            runTest "$mesh" "reference_${mesh}_${reconstruction}_$boundary" \
+                -reference "{ type mmsExponential; k 2; }" \
+                "$reconstruction" "$boundary"
+        done
+    done
+
+    case "$mesh" in
+    left_N* | right_N*)
+        runTest "$mesh" "quadratic_$mesh" -quadratic \
+            "{ type mmsQuadratic; }" linear weak
+        ;;
+    esac
+done
+
+# Summary table
+echo
+echo "max |Res_j - Res_j,reference|/V_j (-reference) and, for -quadratic,"
+echo "the nodes tested and max |Res_j - Res_j,expected|/V_j:"
+for logFile in run/*/log.Test-vertexCentredResidual
+do
+    name="${logFile#run/}"
+    name="${name%/log.Test-vertexCentredResidual}"
+    awk -v name="$name" '
+        /Res_j,reference\|\/V_j = / { diff = $NF }
+        /edge: / { nodes = $(NF - 2) " nodes" }
+        /Res_j,expected\|\/V_j = / { diff = $NF }
+        END { printf "    %-42s %10.3g %s\n", name, diff, nodes }
+    ' "$logFile"
+done
+echo
+
+# 7 meshes x 4 reference runs + 4 quadratic runs
+if [[ $nPassed -ne 32 ]]
+then
+    fail "count" "$nPassed runs passed, expected 32"
+fi
+
+if [[ $nFailed -gt 0 ]]
+then
+    echo "vcfvResidual: $nFailed check(s) FAILED:$failedRuns"
+    exit 1
+fi
+
+echo "vcfvResidual: all checks passed"
+
+#------------------------------------------------------------------------------

@@ -1,0 +1,18 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/vcfvResidual/Allclean
+#
+# Description
+#     Remove the run directory created by Allrun.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+rm -rf run
+
+#------------------------------------------------------------------------------
