@@ -27,13 +27,17 @@
 #         2^n boundary edges on each side;
 #       - every run converges;
 #       - mesh 0: the converged centre value equals the closed form of
-#         Test-tufillaroMesh0 to 1e-10, for u1, u2 and u3.
-#     REPORT ONLY: the maximum nodal error and the slope
-#     log(e_(n-1)/e_n)/log(2) of every run, next to the published values
-#     (paperTable2.dat), with the relative difference (ours - paper)/paper.
-#     The published errors have 3 significant digits, so a relative
-#     difference up to about 0.5e-2 (half a unit in the last digit) is
-#     rounding.
+#         Test-tufillaroMesh0 to 1e-10, for u1, u2 and u3 (mesh 0 is tied
+#         to its closed form, not to the paper: the published 5.49e-1 for
+#         u1 cannot be a rounding of the exact 0.55);
+#       - meshes 1 to 5: the maximum nodal error is within 5% of the
+#         published value (paperTable2.dat), |ours - paper|/paper <= 0.05,
+#         for u1, u2 and u3.
+#     The full comparison is printed: the maximum nodal error and the slope
+#     log(e_(n-1)/e_n)/log(2) of every run, next to the published values,
+#     with the relative difference (ours - paper)/paper. The published
+#     errors have 3 significant digits, so a relative difference up to
+#     about 0.5e-2 (half a unit in the last digit) is rounding.
 #
 #     Output (in run/): tufillaroTable2.dat.
 #
@@ -217,11 +221,11 @@ do
 done
 
 
-# Comparison with the paper (report only)
+# Comparison with the paper: 5% tolerance on meshes 1 to 5
 
 echo
-echo "Ours against Tufillaro et al. Table 2 (REPORT ONLY). rel = (ours -" \
-    "paper)/paper;"
+echo "Ours against Tufillaro et al. Table 2. rel = (ours - paper)/paper;"
+echo "meshes 1 to 5 must have |rel| <= 0.05 (mesh 0: closed-form check);"
 echo "the paper's errors have 3 significant digits (|rel| < ~5e-3 is" \
     "rounding)."
 awk '
@@ -245,9 +249,9 @@ awk '
     }
     END {
         label[1] = "u1"; label[2] = "u2"; label[3] = "u3"
-        printf "    %-3s %2s %8s %10s %10s %9s %6s %6s %7s %5s\n", \
+        printf "    %-3s %2s %8s %10s %10s %9s %6s %6s %7s %5s %s\n", \
             "u", "n", "h", "ours", "paper", "rel", "slope", "paper", \
-            "diff", "nIter"
+            "diff", "nIter", "check"
         for (k = 1; k <= 3; k++)
         {
             for (n = 0; n <= 5; n++)
@@ -265,14 +269,30 @@ awk '
                     slope = "-"; diff = "-"
                 }
                 format = "    %-3s %2d %8.5f %10.4e %10s %+9.2e"
-                format = format " %6s %6s %7s %5d\n"
+                format = format " %6s %6s %7s %5d %s\n"
+                check = "-"
+                if (n > 0)
+                {
+                    check = "PASS"
+                    if (rel > 0.05 || rel < -0.05)
+                    {
+                        check = "FAIL"
+                        nGuardFailed++
+                    }
+                }
                 printf format, \
                     label[k], n, 1/2^n, e[k, n], paperE[k, n], rel, slope, \
-                    paperS[k, n], diff, nIter[k, n]
+                    paperS[k, n], diff, nIter[k, n], check
             }
         }
+        exit (nGuardFailed > 0)
     }
 ' paperTable2.dat "$resultFile"
+guardStatus=$?
+if [[ $guardStatus -ne 0 ]]
+then
+    fail "Table 2" "an error of meshes 1 to 5 is more than 5% from the paper"
+fi
 echo
 
 if [[ $nFailed -gt 0 ]]
@@ -281,6 +301,6 @@ then
     exit 1
 fi
 
-echo "tufillaroTable2: all hard checks passed (the comparison is report-only)"
+echo "tufillaroTable2: all checks passed"
 
 #------------------------------------------------------------------------------
