@@ -319,6 +319,36 @@ Solver: two-stage Runge-Kutta pseudo-time as in Tufillaro et al.
 too slow on fine meshes, propose defect correction with a first-order
 Jacobian in an `lduMatrix` built on an `lduPrimitiveMesh`.
 
+S4 decisions:
+
+- Pseudo-time step, weak closure (deviation from the paper, which uses
+  strong Dirichlet): at boundary nodes the denominator also includes
+  `sum_B 0.5 |n_B . A| / 2` over the node's boundary edges. This affects
+  only the convergence path, not the converged solution. Record it in the
+  guide.
+- Convergence: absolute RMS of `Res_j / V_j` over unknown nodes only
+  (all nodes for weak closure, interior nodes for strong) `<= 1e-10`.
+  An iteration cap must end the run with a clear not-converged flag and a
+  non-zero exit, never a silent result.
+- Because CCFV and VCFV use different stopping criteria, an
+  iteration-error check is required: on one fine mesh per method, tighten
+  the tolerance by 100x and confirm the error norms are unchanged in the
+  reported digits.
+- Source: `f = A . grad(u)` implemented once in the `analyticalSolution`
+  base class, using the exact analytical gradient at the nodes, and used
+  as `f_j V_j` as in the paper. Structure it so a future diffusion term
+  can change the source without restructuring.
+- Table 2 (test 6) uses the paper's own mesh family (their Fig. 8 and
+  Table 1): mesh 0 is the unit square split by both diagonals into 4
+  triangles (5 nodes); each refinement splits every triangle into 4 at
+  edge midpoints (13, 41, 145, 545, 2113 nodes), h = 1/2^n. Strong
+  Dirichlet with the exact solution on all boundaries, interior
+  initialised with the exact solution, two-stage RK at CFL 0.5, maximum
+  nodal error. Compare errors and slopes with the published values,
+  report-only; the Table 1 counts and a mesh-0 closed-form check are hard
+  tests. Any gap larger than a few per cent must be explained in the
+  report.
+
 Output: write u as a `pointScalarField` (front and back points share (x, t);
 match them by coordinates) so ParaView shows the result directly.
 
@@ -343,7 +373,11 @@ Required sections:
 5. VCFV: median-dual control volumes, the dual-area and directed-area
    formulas, the worked right-triangle example, the boundary correction,
    the closure identity, least-squares gradients, the edge-loop residual,
-   boundary closure and the pseudo-time solver.
+   boundary closure and the pseudo-time solver, including the
+   boundary-node pseudo-time-step deviation from the paper (it changes
+   only the convergence path, not the converged solution), the upwind
+   sign typo in the paper's Eq. 97 as printed, and the stopping criteria
+   of both methods with the iteration-error check.
 6. From 1D+t to 2D+t:
    - CCFV: a 3D OpenFOAM mesh with z = t and space-time velocity
      (u_x, u_y, 1).
