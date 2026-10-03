@@ -1,0 +1,162 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/vcfvFreestream/Allrun
+#
+# Description
+#     Freestream preservation of the vertexCentred residual (CLAUDE.md
+#     section 6, verification test 4): for the constant solution u = 0.7
+#     with weak boundary treatment, Test-vertexCentredResidual -freestream
+#     requires |Res_j| <= 1e-13 at every node, interior and boundary, for
+#     VC-1 (reconstruction none) and VC-2 (reconstruction linear), on
+#       - structured Left and Right meshes, N = 8 and 32 (tutorial Allmesh);
+#       - perturbed Left meshes, N = 8 and 32 (Allmesh N left perturbed);
+#       - the unstructured mesh of tests/medianDualIdentities.
+#     A table of max |Res_j| per mesh and scheme is printed at the end.
+#     Exits with a non-zero status if a run or a check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+if ! command -v Test-vertexCentredResidual > /dev/null 2>&1
+then
+    echo "Test-vertexCentredResidual not found: run ./Allwmake first"
+    exit 1
+fi
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+geoFile=../medianDualIdentities/unstructuredSquare.geo
+
+nFailed=0
+failedRuns=""
+
+# fail <name> <message>
+function fail()
+{
+    echo "    FAIL: $1: $2"
+    nFailed=$((nFailed + 1))
+    failedRuns="$failedRuns $1"
+}
+
+# makeMesh <name>: create run/mesh_<name>/constant/polyMesh, where name is
+# left_N<N>, right_N<N>, leftPerturbed_N<N> or unstructured
+function makeMesh()
+{
+    local name="$1" meshDir="run/mesh_$1" N
+    mkdir -p "$meshDir"
+    cp -r "$tutorialDir"/system "$meshDir"/
+
+    if [ "$name" = "unstructured" ]
+    then
+        cp "$geoFile" "$meshDir"/
+        (
+            cd "$meshDir" || exit 1
+            gmsh -3 -format msh22 -o unstructuredSquare.msh \
+                unstructuredSquare.geo > log.gmsh 2>&1 || exit 1
+            runApplication gmshToFoam unstructuredSquare.msh > /dev/null \
+                || exit 1
+            runApplication foamDictionary constant/polyMesh/boundary \
+                -entry entry0/frontAndBack/type -set empty > /dev/null \
+                || exit 1
+        )
+        return $?
+    fi
+
+    N="${name##*_N}"
+    cp -r "$tutorialDir"/gmsh "$tutorialDir"/Allmesh "$meshDir"/
+    case "$name" in
+    left_N*) "$meshDir"/Allmesh "$N" left > "$meshDir"/log.Allmesh 2>&1 ;;
+    right_N*) "$meshDir"/Allmesh "$N" right > "$meshDir"/log.Allmesh 2>&1 ;;
+    leftPerturbed_N*)
+        "$meshDir"/Allmesh "$N" left perturbed > "$meshDir"/log.Allmesh 2>&1
+        ;;
+    *) return 1 ;;
+    esac
+}
+
+rm -rf run
+mkdir run
+
+meshes="left_N8 right_N8 leftPerturbed_N8 left_N32 right_N32"
+meshes="$meshes leftPerturbed_N32 unstructured"
+
+for mesh in $meshes
+do
+    echo "Mesh $mesh"
+    if ! makeMesh "$mesh"
+    then
+        fail "$mesh" "meshing (see run/mesh_$mesh)"
+        continue
+    fi
+
+    for reconstruction in none linear
+    do
+        name="${mesh}_$reconstruction"
+        caseDir="run/$name"
+        mkdir -p "$caseDir"
+        cp -r "$tutorialDir"/constant "$tutorialDir"/system "$caseDir"/
+        cp -r "run/mesh_$mesh"/constant/polyMesh "$caseDir"/constant/
+
+        (
+            cd "$caseDir" || exit 1
+            props=constant/spaceTimeProperties
+            foamDictionary "$props" -entry spaceTimeModel \
+                -set vertexCentred > /dev/null || exit 1
+            foamDictionary "$props" -entry analyticalSolution \
+                -set "{ type constant; c0 0.7; }" > /dev/null || exit 1
+            foamDictionary "$props" \
+                -entry vertexCentredCoeffs/reconstruction \
+                -set "$reconstruction" > /dev/null || exit 1
+            foamDictionary "$props" \
+                -entry vertexCentredCoeffs/boundaryTreatment \
+                -set weak > /dev/null || exit 1
+            Test-vertexCentredResidual -freestream \
+                > log.Test-vertexCentredResidual 2>&1
+        )
+        status=$?
+
+        grep "FAIL" "$caseDir/log.Test-vertexCentredResidual"
+        if [[ $status -ne 0 ]]
+        then
+            fail "$name" \
+                "Test-vertexCentredResidual (see $caseDir/log.*)"
+        else
+            echo "    PASS: $name"
+        fi
+    done
+done
+
+# Summary table
+echo
+echo "max |Res_j| for u = 0.7, weak boundary treatment (tolerance 1e-13):"
+printf "    %-28s %12s %12s\n" "mesh_reconstruction" interior boundary
+for logFile in run/*/log.Test-vertexCentredResidual
+do
+    name="${logFile#run/}"
+    name="${name%/log.Test-vertexCentredResidual}"
+    awk -v name="$name" '
+        /max \|Res_j\|: interior nodes/ {
+            interior = $5; boundary = $8
+            sub(/,$/, "", interior)
+        }
+        END { printf "    %-28s %12.3g %12.3g\n", name, interior, boundary }
+    ' "$logFile"
+done
+echo
+
+if [[ $nFailed -gt 0 ]]
+then
+    echo "vcfvFreestream: $nFailed check(s) FAILED:$failedRuns"
+    exit 1
+fi
+
+echo "vcfvFreestream: all checks passed"
+
+#------------------------------------------------------------------------------
