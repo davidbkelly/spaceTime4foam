@@ -10,9 +10,10 @@
 # Description
 #     Run the verification tests: every tests/<name>/Allrun script, each from
 #     a clean state (its Allclean is called first). The output of each test
-#     is written to tests/<name>/log.Alltest. A PASS/FAIL summary is printed
-#     and the exit status is non-zero if any test fails. Nothing is built:
-#     run ./Allwmake first.
+#     is written to tests/<name>/log.Alltest; its standard input is
+#     /dev/null, so no test can wait for input. A PASS/FAIL summary is
+#     printed and the exit status is non-zero if any test fails. Nothing is
+#     built: run ./Allwmake first.
 #     Adapted from the solids4foam tutorials/Alltest script.
 #
 #------------------------------------------------------------------------------
@@ -129,7 +130,8 @@ do
     fi
 
     startTime=$(date +%s)
-    (cd "$testDir" && ./Allrun) > "$testDir/log.Alltest" 2>&1
+    # stdin is /dev/null, so that no test can wait for input
+    (cd "$testDir" && ./Allrun) < /dev/null > "$testDir/log.Alltest" 2>&1
     status=$?
     endTime=$(date +%s)
     wallTime=$((endTime - startTime))

@@ -133,9 +133,14 @@ do
 done
 
 vtuFile=$(find "$caseDir/VTK" -name internal.vtu 2> /dev/null | head -1)
-awk '/<PointData>/,/<\/PointData>/' "$vtuFile" 2> /dev/null \
-    | grep -q "Name='u'"
-check "foamToVTK writes u as point data" $?
+if [ -n "$vtuFile" ] && [ -s "$vtuFile" ]
+then
+    awk '/<PointData>/,/<\/PointData>/' "$vtuFile" < /dev/null \
+        | grep -q "Name='u'"
+    check "foamToVTK writes u as point data" $?
+else
+    check "foamToVTK writes internal.vtu (not found in $caseDir/VTK)" 1
+fi
 
 echo
 
