@@ -15,8 +15,9 @@
 #       - mesh n + 1: every triangle of mesh n split into 4 at its edge
 #         midpoints (the 3 corner triangles and the middle one).
 #     Mesh n has 4^(n + 1) triangles, 2^n edges on each side and h = 1/2^n.
-#     For n >= 2 this is not the same as crossing each square of a grid by
-#     both diagonals: the node sets agree, the connectivity does not.
+#     From n >= 1 this is not the same as crossing each square of a grid by
+#     both diagonals (mesh 1 is not the 2 x 2 grid of crossed squares): the
+#     node sets agree, the connectivity does not.
 #     All coordinates are dyadic, so they are exact in binary.
 #
 #     y plays the role of t. The triangles are extruded one layer in z
