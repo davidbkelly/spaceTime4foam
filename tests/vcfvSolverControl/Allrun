@@ -19,6 +19,10 @@
 #          xLeft, xRight) and empty (frontAndBack); spaceTimeErrors reads
 #          it (it also checks that front and back points hold the same
 #          value); foamToVTK writes it as point data u.
+#     In both runs the final residual of spaceTimeSolverInfo.dat must equal
+#     the RMS of Res_j/V_j over the unknown nodes of the written u, computed
+#     by Test-vertexCentredResidual -writtenResidual, to a relative 1e-8
+#     (the info file has 10 significant digits).
 #     Exits with a non-zero status if a check fails.
 #
 #------------------------------------------------------------------------------
@@ -75,6 +79,26 @@ then
 fi
 
 
+# checkWrittenResidual <caseDir>: the final residual of the info file
+# equals the RMS of Res_j/V_j of the written u
+function checkWrittenResidual()
+{
+    local caseDir="$1" reported computed
+    reported=$(grep -v '^#' "$caseDir/postProcessing/spaceTimeSolverInfo.dat" \
+        2> /dev/null | awk '{print $3}')
+    computed=$(cd "$caseDir" && Test-vertexCentredResidual -writtenResidual \
+        2> /dev/null | awk '/RMS of the written field/ {print $NF}')
+    echo "    final residual $reported, RMS(Res_j/V_j) of the written u" \
+        "$computed"
+    awk -v a="$reported" -v b="$computed" 'BEGIN {
+        if (a == "" || b == "" || b == 0) { exit 1 }
+        rel = (a - b)/b
+        if (rel < 0) { rel = -rel }
+        exit (rel > 1e-8)
+    }' < /dev/null
+    check "final residual = RMS of Res_j/V_j of the written u" $?
+}
+
 # 1. Not converged
 
 echo "1. vertexCentred with endTime 5"
@@ -95,6 +119,7 @@ checkTrue "nIterations = 5 and converged = 0" \
     "$(echo "$info" | awk '{print $1, $2}')" = "5 0"
 grep -q "class *pointScalarField" "$caseDir/5/u" 2> /dev/null
 check "u written at iteration 5" $?
+checkWrittenResidual "$caseDir"
 
 
 # 2. Converged run and output
@@ -120,6 +145,7 @@ latestTime=$(echo "$info" | awk '{print $1}')
 uFile="$caseDir/$latestTime/u"
 grep -q "class *pointScalarField" "$uFile" 2> /dev/null
 check "$latestTime/u is a pointScalarField" $?
+checkWrittenResidual "$caseDir"
 
 # Patch types: frontAndBack empty, the others calculated
 foamDictionary "$uFile" -entry boundaryField/frontAndBack/type -value \

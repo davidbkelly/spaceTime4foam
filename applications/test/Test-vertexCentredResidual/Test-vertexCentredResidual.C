@@ -72,10 +72,19 @@ Description
     Test-medianDualMesh) is shared. Checked at every node:
         |Res_j - Res_j,reference|/V_j <= 100 eps |A| max|u| / h.
 
+    -writtenResidual (convergence measure): reads u of the latest time
+    written by spaceTime4Foam (front points), computes its residual with
+    vertexCentred::calcResidual and prints
+        RMS of the written field = sqrt(sum_U (Res_j/V_j)^2 / nU)
+    over the unknown nodes U, chosen here from the settings (all nodes for
+    weak, the nodes on no boundary edge for strong). The calling script
+    compares it with the final residual written by spaceTime4Foam.
+
 \*---------------------------------------------------------------------------*/
 
 #include "fvCFD.H"
 #include "vertexCentred.H"
+#include "pointMesh.H"
 
 #include <limits>
 
@@ -102,8 +111,8 @@ int main(int argc, char *argv[])
     argList::addNote
     (
         "Freestream (-freestream), linear-exactness (-linear), reconstruction"
-        " (-quadratic) or independent-residual (-reference) test of the"
-        " vertexCentred residual on the mesh of the case"
+        " (-quadratic), independent-residual (-reference) or written-field"
+        " residual (-writtenResidual) test of the vertexCentred residual"
     );
 
     argList::addBoolOption("freestream", "Freestream preservation (test 4)");
@@ -118,6 +127,11 @@ int main(int argc, char *argv[])
         "reference",
         "Comparison with an independent residual computed here"
     );
+    argList::addBoolOption
+    (
+        "writtenResidual",
+        "Print the RMS of Res_j/V_j of the latest written u"
+    );
 
     argList::noParallel();
 
@@ -128,20 +142,82 @@ int main(int argc, char *argv[])
     const bool linear = args.found("linear");
     const bool quadratic = args.found("quadratic");
     const bool reference = args.found("reference");
+    const bool writtenResidual = args.found("writtenResidual");
 
     if
     (
         label(freestream) + label(linear) + label(quadratic)
-      + label(reference) != 1
+      + label(reference) + label(writtenResidual) != 1
     )
     {
         FatalErrorInFunction
-            << "Give exactly one of -freestream, -linear, -quadratic and"
-            << " -reference"
+            << "Give exactly one of -freestream, -linear, -quadratic,"
+            << " -reference and -writtenResidual"
             << exit(FatalError);
     }
 
     spaceTimeModels::vertexCentred model(runTime);
+
+    if (writtenResidual)
+    {
+        const medianDualMesh& dual = model.dual();
+        const instantList times = runTime.times();
+        runTime.setTime(times.last(), times.size() - 1);
+
+        // Not registered: the model already holds a field called u
+        const pointScalarField uWritten
+        (
+            IOobject
+            (
+                "u",
+                runTime.timeName(),
+                model.mesh(),
+                IOobject::MUST_READ,
+                IOobject::NO_WRITE,
+                IOobject::NO_REGISTER
+            ),
+            pointMesh::New(model.mesh())
+        );
+
+        scalarField u(dual.nNodes());
+
+        forAll(u, nodei)
+        {
+            u[nodei] = uWritten[dual.frontMeshPoints()[nodei]];
+        }
+
+        scalarField res(dual.nNodes());
+        model.calcResidual(u, res);
+
+        const word boundaryTreatment
+        (
+            model.spaceTimeProperties().subDict("vertexCentredCoeffs")
+           .get<word>("boundaryTreatment")
+        );
+
+        scalar sumSqr = 0;
+        label nUnknowns = 0;
+
+        forAll(res, nodei)
+        {
+            if
+            (
+                boundaryTreatment == "weak"
+             || !dual.isBoundaryNode()[nodei]
+            )
+            {
+                sumSqr += sqr(res[nodei]/dual.V()[nodei]);
+                nUnknowns++;
+            }
+        }
+
+        Info<< nl << "Time " << runTime.timeName() << ", " << nUnknowns
+            << " unknown nodes (" << boundaryTreatment << ")" << nl
+            << "RMS of the written field = "
+            << Foam::sqrt(sumSqr/nUnknowns) << nl << endl;
+
+        return 0;
+    }
 
     const medianDualMesh& dual = model.dual();
     const scalarField& V = dual.V();
