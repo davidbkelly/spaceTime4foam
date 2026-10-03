@@ -1,6 +1,7 @@
 spaceTimeModels/spaceTimeModel/spaceTimeModel.C
 spaceTimeModels/spaceTimeModel/newSpaceTimeModel.C
 spaceTimeModels/cellCentred/cellCentred.C
+spaceTimeModels/vertexCentred/vertexCentred.C
 
 analyticalSolutions/analyticalSolution/analyticalSolution.C
 analyticalSolutions/analyticalSolution/newAnalyticalSolution.C

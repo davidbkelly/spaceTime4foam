@@ -14,13 +14,15 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-// Space-time discretisation: cellCentred (vertexCentred in a later stage)
+// Space-time discretisation: cellCentred (CCFV) or vertexCentred (VCFV)
 spaceTimeModel       cellCentred;
 
 // Advection speed: space-time velocity A = (a, 1, 0), mesh x = x, mesh y = t
 a                    1;
 
-// Converged when the initial residual of u falls below this value
+// cellCentred: converged when the initial residual of the u solve falls
+// below this value. vertexCentred: converged when the RMS of Res_j/V_j over
+// the unknown nodes is at most this value.
 convergenceTolerance 1e-10;
 
 // Exact solution, used for the inflow data and the error norms
@@ -28,6 +30,15 @@ analyticalSolution
 {
     type             travellingSine;    // u = sin(2 pi k (x - a t))
     k                1;
+}
+
+// vertexCentred settings (not used by cellCentred)
+vertexCentredCoeffs
+{
+    reconstruction     linear;    // none (VC-1) or linear (VC-2)
+    boundaryTreatment  weak;      // weak (inflow data) or strong (Dirichlet)
+    CFL                0.5;       // pseudo-time CFL number
+    initialisation     zero;      // zero or analytical
 }
 
 // ************************************************************************* //

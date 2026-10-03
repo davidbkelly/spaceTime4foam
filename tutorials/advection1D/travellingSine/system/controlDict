@@ -15,8 +15,10 @@ FoamFile
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 // The space-time problem is steady: time counts iterations (deltaT 1), and
-// endTime is the maximum number of iterations. spaceTime4Foam writes the
-// fields when it converges, or at endTime (and then exits with status 1).
+// endTime is the maximum number of iterations (vertexCentred needs about
+// 5 N pseudo-time iterations on the N x N meshes, cellCentred far fewer).
+// spaceTime4Foam writes the fields when it converges, or at endTime (and
+// then exits with status 1).
 
 // Load the spaceTimeAnalyticalFixedValue boundary condition in utilities
 // such as foamToVTK. Without it they fall back to a generic patch field,
@@ -31,7 +33,7 @@ startTime       0;
 
 stopAt          endTime;
 
-endTime         1000;
+endTime         10000;
 
 deltaT          1;
 
