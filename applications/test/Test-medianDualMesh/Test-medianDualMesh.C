@@ -52,9 +52,10 @@ Description
         for every non-empty patch other than the triangulated one.
      9. LSQ exactness: for u = c0 + c . x with c0 = 0.3, c = (1.7, -2.3),
         the gradient equals c at every node, reported for interior,
-        boundary and corner nodes (boundary nodes on two patches). Scale:
-        |c| (absolute tolerance 1e3 eps |c|, about 6e-13; the observed
-        errors, from rounding u_k - u_j, are about eps max|u|/h).
+        boundary and corner nodes (boundary nodes on two patches). The
+        error comes from rounding u_k - u_j (about eps max|u|) divided by
+        edge lengths of order h, so the absolute tolerance grows as 1/h:
+        100 eps max|u|/h, with h of medianDualMesh.
     9b. LSQ weighting: for the nonlinear field
         u = sin(3x) cos(2t) + x^2 t, the gradient equals the unweighted
         least-squares gradient solved here from the 2 x 2 normal equations
@@ -617,9 +618,9 @@ int main(int argc, char *argv[])
         const vectorField grad(dual.gradient(u));
         const scalar maxU = max(mag(u));
 
-        // Absolute scale |c|: the error comes from rounding u_k - u_j
-        // (about eps max|u|/h, 1e-14 at h = 1/32)
-        const scalar tolLinear = tolFactor*mag(c);
+        // The error comes from rounding u_k - u_j (eps max|u|) divided by
+        // edge lengths of order h: the tolerance grows as 1/h
+        const scalar tolLinear = 100*eps*maxU/dual.h();
 
         // Corner nodes: boundary nodes with boundary edges on two patches
         labelList firstPatch(dual.nNodes(), -1);
@@ -682,7 +683,7 @@ int main(int argc, char *argv[])
 
         nFailed += check
         (
-            "max |grad(u)_j - c| (tolerance 1e3 eps |c|)",
+            "max |grad(u)_j - c| (tolerance 100 eps max|u|/h)",
             maxErr,
             tolLinear
         );
