@@ -23,8 +23,8 @@ Description
     solution selected in constant/spaceTimeProperties. The latest time
     (iteration) is used, unless -time or -latestTime is given.
 
-    The branch is chosen by the spaceTimeModel keyword. Only cellCentred is
-    implemented so far; vertexCentred will be added with that model.
+    The branch is chosen by the spaceTimeModel keyword: cellCentred or
+    vertexCentred.
 
     cellCentred:
     - Error at each cell centroid: e = u_P - u_exact(x_P).
@@ -48,9 +48,27 @@ Description
       1/N on the N x N triangle meshes. If the front faces are not all
       triangles, h = sqrt(A_domain/nFrontFaces) is used instead (1/N on an
       N x N quad mesh) and a note is printed.
+    - nUnknowns is the number of cells.
+
+    vertexCentred:
+    - u is read as a pointScalarField; the front and back points of each
+      node must hold the same value. The nodes, V_j and the edges are those
+      of medianDualMesh.
+    - Error at each node: e_j = u_j - u_exact(x_j), weighted by the dual
+      area V_j, with the same norm definitions, for S = all nodes, interior
+      nodes and boundary nodes (nodes of a boundary edge, including tEnd).
+      Linf over all nodes is the maximum nodal error of Tufillaro et al.,
+      Table 2.
+    - Final-time error at the nodes on tEnd (t = T): each node is weighted
+      by half the length of each tEnd edge it belongs to.
+    - h = sqrt(A_domain/(nTriangles/2)) from medianDualMesh (the same
+      formula as above).
+    - nUnknowns is the number of nodes for boundaryTreatment weak and the
+      number of interior nodes for strong (vertexCentredCoeffs).
 
     Output: postProcessing/spaceTimeErrors/errors.dat (one data line; the
-    commented header names the columns) and a summary on screen.
+    commented header names the columns, which differ between the methods
+    after column 14) and a summary on screen.
 
 \*---------------------------------------------------------------------------*/
 
@@ -58,6 +76,9 @@ Description
 #include "OFstream.H"
 #include "emptyPolyPatch.H"
 #include "analyticalSolution.H"
+#include "medianDualMesh.H"
+#include "pointFields.H"
+#include "pointMesh.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -247,7 +268,9 @@ int main(int argc, char *argv[])
     errorNorms boundaryNorms;
     errorNorms tEndExtrapolatedNorms;
     errorNorms tEndCellNorms;
+    errorNorms tEndNodalNorms;
     label nUnknowns = 0;
+    label nNodes = 0;
     const scalar timeValue = runTime.value();
 
     if (method == "cellCentred")
@@ -342,6 +365,119 @@ int main(int argc, char *argv[])
             tEndCellNorms.add(u[celli] - uExactFace[facei], length);
         }
     }
+    else if (method == "vertexCentred")
+    {
+        const medianDualMesh dual(mesh);
+
+        pointScalarField uPoint
+        (
+            IOobject
+            (
+                "u",
+                runTime.timeName(),
+                mesh,
+                IOobject::MUST_READ,
+                IOobject::NO_WRITE
+            ),
+            pointMesh::New(mesh)
+        );
+
+        // Nodal values from the front points; the back points must agree
+        const labelList& front = dual.frontMeshPoints();
+        const labelList& back = dual.backMeshPoints();
+
+        nNodes = dual.nNodes();
+        scalarField u(nNodes);
+
+        forAll(u, nodei)
+        {
+            u[nodei] = uPoint[front[nodei]];
+
+            if (uPoint[back[nodei]] != u[nodei])
+            {
+                FatalErrorInFunction
+                    << "Node " << nodei << " at " << dual.points()[nodei]
+                    << " has the value " << u[nodei] << " at its front point"
+                    << " and " << uPoint[back[nodei]] << " at its back point"
+                    << exit(FatalError);
+            }
+        }
+
+        const scalarField uExact(analytical().value(dual.points()));
+        const scalarField& V = dual.V();
+        const boolList& isBoundaryNode = dual.isBoundaryNode();
+
+        forAll(u, nodei)
+        {
+            const scalar e = u[nodei] - uExact[nodei];
+
+            allNorms.add(e, V[nodei]);
+
+            if (isBoundaryNode[nodei])
+            {
+                boundaryNorms.add(e, V[nodei]);
+            }
+            else
+            {
+                interiorNorms.add(e, V[nodei]);
+            }
+        }
+
+        // Final-time error: nodes on tEnd, each weighted by half the length
+        // of each of its tEnd edges
+        if (mesh.boundaryMesh().findPatchID("tEnd") < 0)
+        {
+            FatalErrorInFunction
+                << "Cannot find the tEnd patch" << exit(FatalError);
+        }
+
+        const edgeList& edges = dual.edges();
+        const pointField& p = dual.points();
+        scalarField tEndWeight(nNodes, 0);
+
+        for (label i = 0; i < dual.nBoundaryEdges(); i++)
+        {
+            if (dual.boundaryEdgePatchName(i) == "tEnd")
+            {
+                const edge& e = edges[dual.nInternalEdges() + i];
+                const scalar length = mag(p[e.end()] - p[e.start()]);
+
+                tEndWeight[e.start()] += 0.5*length;
+                tEndWeight[e.end()] += 0.5*length;
+            }
+        }
+
+        forAll(u, nodei)
+        {
+            if (tEndWeight[nodei] > 0)
+            {
+                tEndNodalNorms.add
+                (
+                    u[nodei] - uExact[nodei],
+                    tEndWeight[nodei]
+                );
+            }
+        }
+
+        // Unknowns: all nodes (weak) or the interior nodes (strong)
+        const word boundaryTreatment
+        (
+            spaceTimeProperties.subDict("vertexCentredCoeffs")
+           .get<word>("boundaryTreatment")
+        );
+
+        if (boundaryTreatment == "strong")
+        {
+            nUnknowns = interiorNorms.n;
+        }
+        else
+        {
+            nUnknowns = nNodes;
+        }
+
+        // The same formula as above, from the dual mesh
+        h = dual.h();
+    }
     else
     {
         FatalErrorInFunction
@@ -354,20 +490,45 @@ int main(int argc, char *argv[])
     boundaryNorms.finalise();
     tEndExtrapolatedNorms.finalise();
     tEndCellNorms.finalise();
+    tEndNodalNorms.finalise();
+
+    const bool vertexCentred = (method == "vertexCentred");
 
 
     // Summary
 
     Info<< "Method " << method << ", h = " << h
         << ", nUnknowns = " << nUnknowns
-        << ", domain area = " << domainArea << nl
-        << "Errors e = u - u_exact at the unknowns, area weighted:" << endl;
+        << ", domain area = " << domainArea << endl;
+
+    if (vertexCentred)
+    {
+        Info<< "Errors e = u - u_exact at the " << nNodes << " nodes, dual"
+            << " area weighted:" << endl;
+    }
+    else
+    {
+        Info<< "Errors e = u - u_exact at the unknowns, area weighted:"
+            << endl;
+    }
+
     printNorms("all", allNorms);
     printNorms("interior", interiorNorms);
     printNorms("boundary", boundaryNorms);
     Info<< "Errors on tEnd (t = T), length weighted:" << endl;
-    printNorms("extrapolated", tEndExtrapolatedNorms);
-    printNorms("cell value", tEndCellNorms);
+
+    if (vertexCentred)
+    {
+        printNorms("nodal value", tEndNodalNorms);
+        Info<< "Maximum nodal error (Linf over all nodes) = "
+            << allNorms.Linf << endl;
+    }
+    else
+    {
+        printNorms("extrapolated", tEndExtrapolatedNorms);
+        printNorms("cell value", tEndCellNorms);
+    }
+
     Info<< endl;
 
 
@@ -390,20 +551,41 @@ int main(int argc, char *argv[])
         << "#  2 h = sqrt(A_domain/(nTriangles/2))" << nl
         << "#  3 nUnknowns" << nl
         << "#  4 nInterior" << nl
-        << "#  5 nBoundary" << nl
-        << "#  6- 8 L1 L2 Linf over all unknowns" << nl
-        << "#  9-11 L1 L2 Linf over interior unknowns" << nl
-        << "# 12-14 L1 L2 Linf over boundary unknowns" << nl
-        << "# 15-17 L1 L2 Linf on tEnd, extrapolated face value" << nl
-        << "# 18-20 L1 L2 Linf on tEnd, cell value" << nl;
+        << "#  5 nBoundary" << nl;
 
-    os  << method << " " << h << " " << nUnknowns << " "
-        << interiorNorms.n << " " << boundaryNorms.n << " ";
-    writeNorms(os, allNorms) << " ";
-    writeNorms(os, interiorNorms) << " ";
-    writeNorms(os, boundaryNorms) << " ";
-    writeNorms(os, tEndExtrapolatedNorms) << " ";
-    writeNorms(os, tEndCellNorms) << nl;
+    if (vertexCentred)
+    {
+        os  << "#  6- 8 L1 L2 Linf over all nodes (8: maximum nodal error)"
+            << nl
+            << "#  9-11 L1 L2 Linf over interior nodes" << nl
+            << "# 12-14 L1 L2 Linf over boundary nodes" << nl
+            << "# 15-17 L1 L2 Linf on tEnd, nodal value" << nl
+            << "# 18    nNodes" << nl;
+
+        os  << method << " " << h << " " << nUnknowns << " "
+            << interiorNorms.n << " " << boundaryNorms.n << " ";
+        writeNorms(os, allNorms) << " ";
+        writeNorms(os, interiorNorms) << " ";
+        writeNorms(os, boundaryNorms) << " ";
+        writeNorms(os, tEndNodalNorms) << " ";
+        os  << nNodes << nl;
+    }
+    else
+    {
+        os  << "#  6- 8 L1 L2 Linf over all unknowns" << nl
+            << "#  9-11 L1 L2 Linf over interior unknowns" << nl
+            << "# 12-14 L1 L2 Linf over boundary unknowns" << nl
+            << "# 15-17 L1 L2 Linf on tEnd, extrapolated face value" << nl
+            << "# 18-20 L1 L2 Linf on tEnd, cell value" << nl;
+
+        os  << method << " " << h << " " << nUnknowns << " "
+            << interiorNorms.n << " " << boundaryNorms.n << " ";
+        writeNorms(os, allNorms) << " ";
+        writeNorms(os, interiorNorms) << " ";
+        writeNorms(os, boundaryNorms) << " ";
+        writeNorms(os, tEndExtrapolatedNorms) << " ";
+        writeNorms(os, tEndCellNorms) << nl;
+    }
 
     Info<< "Written " << os.name() << nl << nl << "End" << nl << endl;
 
