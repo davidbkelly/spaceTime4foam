@@ -1,0 +1,150 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/vcfvSolverControl/Allrun
+#
+# Description
+#     Iteration cap and output of spaceTime4Foam with the vertexCentred
+#     model (VC-2, weak boundary treatment, travellingSine, Left mesh N = 16):
+#       1. Not converged: with endTime 5, spaceTime4Foam must exit with a
+#          non-zero status, print NOT CONVERGED, write converged = 0 and
+#          nIterations = 5 in postProcessing/spaceTimeSolverInfo.dat, and
+#          write u at iteration 5.
+#       2. Converged run: exit status 0, converged = 1, and the written u is
+#          a pointScalarField with patch types calculated (tStart, tEnd,
+#          xLeft, xRight) and empty (frontAndBack); spaceTimeErrors reads
+#          it (it also checks that front and back points hold the same
+#          value); foamToVTK writes it as point data u.
+#     Exits with a non-zero status if a check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+
+nFailed=0
+
+# check <description> <0 if passed>
+function check()
+{
+    if [[ $2 -eq 0 ]]
+    then
+        echo "    PASS: $1"
+    else
+        echo "    FAIL: $1"
+        nFailed=$((nFailed + 1))
+    fi
+}
+
+# checkTrue <description> <test arguments...>: check the test command
+function checkTrue()
+{
+    local description="$1"
+    shift
+    test "$@"
+    check "$description" $?
+}
+
+rm -rf run
+mkdir run
+
+# setupCase <dir>: VC-2, weak, on the Left N = 16 mesh
+function setupCase()
+{
+    mkdir -p "$1"
+    cp -r "$tutorialDir"/constant "$tutorialDir"/system "$1"/
+    cp -r run/mesh/constant/polyMesh "$1"/constant/
+    foamDictionary "$1"/constant/spaceTimeProperties -entry spaceTimeModel \
+        -set vertexCentred > /dev/null 2>&1
+}
+
+mkdir -p run/mesh
+cp -r "$tutorialDir"/gmsh "$tutorialDir"/system "$tutorialDir"/Allmesh \
+    run/mesh/
+if ! run/mesh/Allmesh 16 left > run/mesh/log.Allmesh 2>&1
+then
+    echo "FAIL: Allmesh (see run/mesh/log.Allmesh)"
+    exit 1
+fi
+
+
+# 1. Not converged
+
+echo "1. vertexCentred with endTime 5"
+caseDir=run/notConverged
+setupCase "$caseDir"
+foamDictionary "$caseDir"/system/controlDict -entry endTime -set 5 \
+    > /dev/null 2>&1
+(cd "$caseDir" && spaceTime4Foam > log.spaceTime4Foam 2>&1)
+status=$?
+info=$(grep -v '^#' "$caseDir/postProcessing/spaceTimeSolverInfo.dat" \
+    2> /dev/null)
+echo "    exit status $status, spaceTimeSolverInfo: $info"
+
+checkTrue "non-zero exit status" "$status" -ne 0
+grep -q "NOT CONVERGED" "$caseDir/log.spaceTime4Foam"
+check "NOT CONVERGED message" $?
+checkTrue "nIterations = 5 and converged = 0" \
+    "$(echo "$info" | awk '{print $1, $2}')" = "5 0"
+grep -q "class *pointScalarField" "$caseDir/5/u" 2> /dev/null
+check "u written at iteration 5" $?
+
+
+# 2. Converged run and output
+
+echo "2. vertexCentred to convergence"
+caseDir=run/converged
+setupCase "$caseDir"
+(
+    cd "$caseDir" || exit 1
+    runApplication spaceTime4Foam || exit 1
+    runApplication spaceTimeErrors || exit 2
+    runApplication foamToVTK -latestTime -ascii || exit 3
+)
+status=$?
+info=$(grep -v '^#' "$caseDir/postProcessing/spaceTimeSolverInfo.dat" \
+    2> /dev/null)
+echo "    exit status $status, spaceTimeSolverInfo: $info"
+
+checkTrue "spaceTime4Foam, spaceTimeErrors and foamToVTK run" "$status" -eq 0
+checkTrue "converged = 1" "$(echo "$info" | awk '{print $2}')" = "1"
+
+latestTime=$(echo "$info" | awk '{print $1}')
+uFile="$caseDir/$latestTime/u"
+grep -q "class *pointScalarField" "$uFile" 2> /dev/null
+check "$latestTime/u is a pointScalarField" $?
+
+# Patch types: frontAndBack empty, the others calculated
+foamDictionary "$uFile" -entry boundaryField/frontAndBack/type -value \
+    2> /dev/null | grep -qx "empty"
+check "frontAndBack is empty" $?
+for patch in tStart tEnd xLeft xRight
+do
+    foamDictionary "$uFile" -entry "boundaryField/$patch/type" -value \
+        2> /dev/null | grep -qx "calculated"
+    check "$patch is calculated" $?
+done
+
+vtuFile=$(find "$caseDir/VTK" -name internal.vtu 2> /dev/null | head -1)
+awk '/<PointData>/,/<\/PointData>/' "$vtuFile" 2> /dev/null \
+    | grep -q "Name='u'"
+check "foamToVTK writes u as point data" $?
+
+echo
+
+if [[ $nFailed -gt 0 ]]
+then
+    echo "vcfvSolverControl: $nFailed check(s) FAILED"
+    exit 1
+fi
+
+echo "vcfvSolverControl: all checks passed"
+
+#------------------------------------------------------------------------------
