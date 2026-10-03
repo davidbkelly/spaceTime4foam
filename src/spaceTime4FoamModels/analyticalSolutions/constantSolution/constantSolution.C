@@ -17,9 +17,8 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "travellingSine.H"
+#include "constantSolution.H"
 #include "addToRunTimeSelectionTable.H"
-#include "mathematicalConstants.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
@@ -27,11 +26,11 @@ namespace Foam
 {
 namespace analyticalSolutions
 {
-    defineTypeNameAndDebug(travellingSine, 0);
+    defineTypeNameAndDebug(constantSolution, 0);
     addToRunTimeSelectionTable
     (
         analyticalSolution,
-        travellingSine,
+        constantSolution,
         dictionary
     );
 }
@@ -40,54 +39,42 @@ namespace analyticalSolutions
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::analyticalSolutions::travellingSine::travellingSine
+Foam::analyticalSolutions::constantSolution::constantSolution
 (
     const dictionary& dict,
     const vector& A
 )
 :
     analyticalSolution(dict, A),
-    k_(dict.get<scalar>("k"))
+    c0_(dict.get<scalar>("c0"))
 {
-    Info<< "    travellingSine: u = sin(2 pi k (x - a t)) with k = " << k_
-        << " and a = " << A.x() << endl;
+    Info<< "    constant: u = c0 with c0 = " << c0_ << endl;
 }
 
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::analyticalSolutions::travellingSine::~travellingSine()
+Foam::analyticalSolutions::constantSolution::~constantSolution()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-Foam::scalar Foam::analyticalSolutions::travellingSine::value
+Foam::scalar Foam::analyticalSolutions::constantSolution::value
 (
     const point& p
 ) const
 {
-    const scalar a = A().x();
-    const scalar x = p.x();
-    const scalar t = p.y();
-
-    return Foam::sin(constant::mathematical::twoPi*k_*(x - a*t));
+    return c0_;
 }
 
 
-Foam::vector Foam::analyticalSolutions::travellingSine::gradient
+Foam::vector Foam::analyticalSolutions::constantSolution::gradient
 (
     const point& p
 ) const
 {
-    const scalar a = A().x();
-    const scalar x = p.x();
-    const scalar t = p.y();
-
-    const scalar omega = constant::mathematical::twoPi*k_;
-    const scalar dudx = omega*Foam::cos(omega*(x - a*t));
-
-    return vector(dudx, -a*dudx, 0);
+    return Zero;
 }
 
 

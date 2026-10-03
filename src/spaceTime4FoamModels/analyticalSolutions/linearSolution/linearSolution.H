@@ -16,39 +16,36 @@ License
     along with spaceTime4foam.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::analyticalSolutions::travellingSine
+    Foam::analyticalSolutions::linearSolution
 
 Description
-    Travelling sine wave, the exact solution of linear advection
-    du/dt + a du/dx = 0 (method of characteristics):
+    Linear solution u(x, t) = c0 + c . (x, t), with gradient c = (cx, ct, 0)
+    and source S = A & c. Used for the linear-exactness test of the
+    vertex-centred residual (CLAUDE.md section 6, test 5).
 
-        u(x, t) = sin(2 pi k (x - a t))
+    c is given as (cx ct) or (cx ct 0); a non-zero third component is an
+    error. hasSource() is true unless A & c is exactly zero.
 
-    with a = A.x(), x = p.x() and t = p.y(). The space-time gradient is
-
-        (du/dx, du/dt, 0) = 2 pi k cos(2 pi k (x - a t)) (1, -a, 0)
-
-    and the source div_st(A u) = du/dt + a du/dx = A & grad(u) is zero.
-    It is evaluated by the base class from the gradient: a dudx - a dudx,
-    which is zero to round-off (exactly zero unless the compiler fuses the
-    products into a fused multiply-add).
+    The class is not called linear, to keep it apart from the Foam::linear
+    interpolation scheme.
 
     Example, in constant/spaceTimeProperties:
     \verbatim
     analyticalSolution
     {
-        type            travellingSine;
-        k               1;      // wave number: periods per unit length
+        type            linear;
+        c0              0.3;
+        c               (1.7 -2.3);
     }
     \endverbatim
 
 SourceFiles
-    travellingSine.C
+    linearSolution.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef travellingSine_H
-#define travellingSine_H
+#ifndef linearSolution_H
+#define linearSolution_H
 
 #include "analyticalSolution.H"
 
@@ -61,58 +58,61 @@ namespace analyticalSolutions
 {
 
 /*---------------------------------------------------------------------------*\
-                       Class travellingSine Declaration
+                       Class linearSolution Declaration
 \*---------------------------------------------------------------------------*/
 
-class travellingSine
+class linearSolution
 :
     public analyticalSolution
 {
     // Private data
 
-        //- Wave number k
-        const scalar k_;
+        //- The value at the origin, c0
+        const scalar c0_;
+
+        //- The gradient c = (cx, ct, 0)
+        vector c_;
 
 
     // Private Member Functions
 
         //- No copy construct
-        travellingSine(const travellingSine&) = delete;
+        linearSolution(const linearSolution&) = delete;
 
         //- No copy assignment
-        void operator=(const travellingSine&) = delete;
+        void operator=(const linearSolution&) = delete;
 
 
 public:
 
     //- Runtime type information
-    TypeName("travellingSine");
+    TypeName("linear");
 
 
     // Constructors
 
         //- Construct from the coefficients dictionary and space-time velocity
-        travellingSine(const dictionary& dict, const vector& A);
+        linearSolution(const dictionary& dict, const vector& A);
 
 
     //- Destructor
-    virtual ~travellingSine();
+    virtual ~linearSolution();
 
 
     // Member Functions
 
         // Evaluation at one space-time point
 
-            //- Return u at the point p = (x, t, z)
+            //- Return u = c0 + cx x + ct t
             virtual scalar value(const point& p) const;
 
-            //- Return the space-time gradient (du/dx, du/dt, 0) at p
+            //- Return the gradient c
             virtual vector gradient(const point& p) const;
 
-            //- The source is identically zero
+            //- True unless A & c is zero
             virtual bool hasSource() const
             {
-                return false;
+                return (A() & c_) != 0;
             }
 
 

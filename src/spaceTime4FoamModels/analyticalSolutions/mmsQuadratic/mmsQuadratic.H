@@ -16,39 +16,32 @@ License
     along with spaceTime4foam.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::analyticalSolutions::travellingSine
+    Foam::analyticalSolutions::mmsQuadratic
 
 Description
-    Travelling sine wave, the exact solution of linear advection
-    du/dt + a du/dx = 0 (method of characteristics):
+    Manufactured solution u2 of Tufillaro, Williams and Nishikawa (2026),
+    Eq. 123, with y = t:
 
-        u(x, t) = sin(2 pi k (x - a t))
+        u(x, t) = 3 x^2 + 5 t^2,   grad(u) = (6x, 10t, 0)
 
-    with a = A.x(), x = p.x() and t = p.y(). The space-time gradient is
-
-        (du/dx, du/dt, 0) = 2 pi k cos(2 pi k (x - a t)) (1, -a, 0)
-
-    and the source div_st(A u) = du/dt + a du/dx = A & grad(u) is zero.
-    It is evaluated by the base class from the gradient: a dudx - a dudx,
-    which is zero to round-off (exactly zero unless the compiler fuses the
-    products into a fused multiply-add).
+    The source is S = A & grad(u) (base class); with A = (1, 1) it is
+    f2 = 6x + 10t, their Eq. 126.
 
     Example, in constant/spaceTimeProperties:
     \verbatim
     analyticalSolution
     {
-        type            travellingSine;
-        k               1;      // wave number: periods per unit length
+        type            mmsQuadratic;
     }
     \endverbatim
 
 SourceFiles
-    travellingSine.C
+    mmsQuadratic.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef travellingSine_H
-#define travellingSine_H
+#ifndef mmsQuadratic_H
+#define mmsQuadratic_H
 
 #include "analyticalSolution.H"
 
@@ -61,42 +54,36 @@ namespace analyticalSolutions
 {
 
 /*---------------------------------------------------------------------------*\
-                       Class travellingSine Declaration
+                        Class mmsQuadratic Declaration
 \*---------------------------------------------------------------------------*/
 
-class travellingSine
+class mmsQuadratic
 :
     public analyticalSolution
 {
-    // Private data
-
-        //- Wave number k
-        const scalar k_;
-
-
     // Private Member Functions
 
         //- No copy construct
-        travellingSine(const travellingSine&) = delete;
+        mmsQuadratic(const mmsQuadratic&) = delete;
 
         //- No copy assignment
-        void operator=(const travellingSine&) = delete;
+        void operator=(const mmsQuadratic&) = delete;
 
 
 public:
 
     //- Runtime type information
-    TypeName("travellingSine");
+    TypeName("mmsQuadratic");
 
 
     // Constructors
 
         //- Construct from the coefficients dictionary and space-time velocity
-        travellingSine(const dictionary& dict, const vector& A);
+        mmsQuadratic(const dictionary& dict, const vector& A);
 
 
     //- Destructor
-    virtual ~travellingSine();
+    virtual ~mmsQuadratic();
 
 
     // Member Functions
@@ -109,10 +96,10 @@ public:
             //- Return the space-time gradient (du/dx, du/dt, 0) at p
             virtual vector gradient(const point& p) const;
 
-            //- The source is identically zero
+            //- The source A & grad(u) is not identically zero
             virtual bool hasSource() const
             {
-                return false;
+                return true;
             }
 
 

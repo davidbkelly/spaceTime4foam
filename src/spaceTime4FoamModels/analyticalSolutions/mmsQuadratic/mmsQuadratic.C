@@ -17,9 +17,8 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "travellingSine.H"
+#include "mmsQuadratic.H"
 #include "addToRunTimeSelectionTable.H"
-#include "mathematicalConstants.H"
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
@@ -27,11 +26,11 @@ namespace Foam
 {
 namespace analyticalSolutions
 {
-    defineTypeNameAndDebug(travellingSine, 0);
+    defineTypeNameAndDebug(mmsQuadratic, 0);
     addToRunTimeSelectionTable
     (
         analyticalSolution,
-        travellingSine,
+        mmsQuadratic,
         dictionary
     );
 }
@@ -40,54 +39,47 @@ namespace analyticalSolutions
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::analyticalSolutions::travellingSine::travellingSine
+Foam::analyticalSolutions::mmsQuadratic::mmsQuadratic
 (
     const dictionary& dict,
     const vector& A
 )
 :
-    analyticalSolution(dict, A),
-    k_(dict.get<scalar>("k"))
+    analyticalSolution(dict, A)
 {
-    Info<< "    travellingSine: u = sin(2 pi k (x - a t)) with k = " << k_
-        << " and a = " << A.x() << endl;
+    Info<< "    mmsQuadratic: u = 3 x^2 + 5 t^2" << endl;
 }
 
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::analyticalSolutions::travellingSine::~travellingSine()
+Foam::analyticalSolutions::mmsQuadratic::~mmsQuadratic()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-Foam::scalar Foam::analyticalSolutions::travellingSine::value
+Foam::scalar Foam::analyticalSolutions::mmsQuadratic::value
 (
     const point& p
 ) const
 {
-    const scalar a = A().x();
     const scalar x = p.x();
     const scalar t = p.y();
 
-    return Foam::sin(constant::mathematical::twoPi*k_*(x - a*t));
+    return 3*x*x + 5*t*t;
 }
 
 
-Foam::vector Foam::analyticalSolutions::travellingSine::gradient
+Foam::vector Foam::analyticalSolutions::mmsQuadratic::gradient
 (
     const point& p
 ) const
 {
-    const scalar a = A().x();
     const scalar x = p.x();
     const scalar t = p.y();
 
-    const scalar omega = constant::mathematical::twoPi*k_;
-    const scalar dudx = omega*Foam::cos(omega*(x - a*t));
-
-    return vector(dudx, -a*dudx, 0);
+    return vector(6*x, 10*t, 0);
 }
 
 

@@ -62,6 +62,13 @@ Foam::vector Foam::analyticalSolution::spaceTimeVelocity
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
+Foam::scalar Foam::analyticalSolution::source(const point& p) const
+{
+    // div_st(A u) = A & grad(u) for a constant A
+    return A_ & gradient(p);
+}
+
+
 Foam::tmp<Foam::scalarField> Foam::analyticalSolution::value
 (
     const vectorField& points

@@ -16,39 +16,32 @@ License
     along with spaceTime4foam.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::analyticalSolutions::travellingSine
+    Foam::analyticalSolutions::constantSolution
 
 Description
-    Travelling sine wave, the exact solution of linear advection
-    du/dt + a du/dx = 0 (method of characteristics):
+    Constant solution u(x, t) = c0, with zero gradient and zero source. Used
+    for the freestream-preservation test of the vertex-centred residual
+    (CLAUDE.md section 6, test 4).
 
-        u(x, t) = sin(2 pi k (x - a t))
-
-    with a = A.x(), x = p.x() and t = p.y(). The space-time gradient is
-
-        (du/dx, du/dt, 0) = 2 pi k cos(2 pi k (x - a t)) (1, -a, 0)
-
-    and the source div_st(A u) = du/dt + a du/dx = A & grad(u) is zero.
-    It is evaluated by the base class from the gradient: a dudx - a dudx,
-    which is zero to round-off (exactly zero unless the compiler fuses the
-    products into a fused multiply-add).
+    The class is not called constant, which would hide the namespace
+    Foam::constant inside Foam::analyticalSolutions.
 
     Example, in constant/spaceTimeProperties:
     \verbatim
     analyticalSolution
     {
-        type            travellingSine;
-        k               1;      // wave number: periods per unit length
+        type            constant;
+        c0              0.7;
     }
     \endverbatim
 
 SourceFiles
-    travellingSine.C
+    constantSolution.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef travellingSine_H
-#define travellingSine_H
+#ifndef constantSolution_H
+#define constantSolution_H
 
 #include "analyticalSolution.H"
 
@@ -61,52 +54,52 @@ namespace analyticalSolutions
 {
 
 /*---------------------------------------------------------------------------*\
-                       Class travellingSine Declaration
+                      Class constantSolution Declaration
 \*---------------------------------------------------------------------------*/
 
-class travellingSine
+class constantSolution
 :
     public analyticalSolution
 {
     // Private data
 
-        //- Wave number k
-        const scalar k_;
+        //- The constant value c0
+        const scalar c0_;
 
 
     // Private Member Functions
 
         //- No copy construct
-        travellingSine(const travellingSine&) = delete;
+        constantSolution(const constantSolution&) = delete;
 
         //- No copy assignment
-        void operator=(const travellingSine&) = delete;
+        void operator=(const constantSolution&) = delete;
 
 
 public:
 
     //- Runtime type information
-    TypeName("travellingSine");
+    TypeName("constant");
 
 
     // Constructors
 
         //- Construct from the coefficients dictionary and space-time velocity
-        travellingSine(const dictionary& dict, const vector& A);
+        constantSolution(const dictionary& dict, const vector& A);
 
 
     //- Destructor
-    virtual ~travellingSine();
+    virtual ~constantSolution();
 
 
     // Member Functions
 
         // Evaluation at one space-time point
 
-            //- Return u at the point p = (x, t, z)
+            //- Return u = c0
             virtual scalar value(const point& p) const;
 
-            //- Return the space-time gradient (du/dx, du/dt, 0) at p
+            //- Return the gradient, which is zero
             virtual vector gradient(const point& p) const;
 
             //- The source is identically zero

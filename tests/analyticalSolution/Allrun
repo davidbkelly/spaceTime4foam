@@ -8,10 +8,11 @@
 #     tests/analyticalSolution/Allrun
 #
 # Description
-#     Unit test of the travellingSine analytical solution: runs the
+#     Unit test of every analyticalSolution type: runs the
 #     Test-analyticalSolution application (built by ./Allwmake), which checks
-#     value, gradient and source against central differences. Exits with a
-#     non-zero status if any check fails.
+#     value, gradient and source against central differences, the source
+#     against Tufillaro et al. Eq. 125-127 and hasSource against source.
+#     Exits with a non-zero status if any check fails.
 #
 #------------------------------------------------------------------------------
 cd "${0%/*}" || exit  # Run from this directory

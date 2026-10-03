@@ -29,6 +29,16 @@ Description
     spaceTimeVelocity(), so the analytical solution always uses the same
     speed as the discretisation.
 
+    The source S = div_st(A u) = A & grad(u) (A is constant) is evaluated
+    once, here in the base class, from the exact analytical gradient, so
+    that a derived type only provides value() and gradient() and states
+    hasSource(). source() is virtual so that a later model problem (e.g.
+    with diffusion, S = A & grad(u) - div(k grad(u))) can change it without
+    restructuring the callers.
+
+    Types: travellingSine, constant, linear, mmsSymmetricQuadratic,
+    mmsQuadratic and mmsExponential (see each header).
+
     Selected from the analyticalSolution sub-dictionary of
     constant/spaceTimeProperties, e.g.
     \verbatim
@@ -163,8 +173,10 @@ public:
             //  stops instead of silently dropping it
             virtual bool hasSource() const = 0;
 
-            //- Return the source S = div_st(A u) = A & gradient at p
-            virtual scalar source(const point& p) const = 0;
+            //- Return the source S = div_st(A u) = A & gradient(p) at p, from
+            //  the exact gradient. Virtual, so that a model problem with
+            //  further terms (e.g. diffusion) can change it
+            virtual scalar source(const point& p) const;
 
 
         // Evaluation at a list of space-time points
