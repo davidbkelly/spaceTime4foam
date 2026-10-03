@@ -167,7 +167,11 @@ Boundary treatment (primary runs): data only on inflow boundaries.
 - L1 and L2 are normalised by the area of their own subset
   (`L1 = sum |e| A / sum A`, `L2 = sqrt(sum e^2 A / sum A)`); Linf is a
   plain max. Mesh size `h = sqrt(A_domain / (nTriangles / 2))`, which is
-  1/N on both mesh families.
+  1/N on both mesh families. `spaceTimeErrors` also writes a nominal-h
+  column per mesh family (1/N for the benchmark meshes, 1/2^n for the
+  Tufillaro family, where the area-based h is 0.707/2^n). The Table 2
+  comparison uses the paper's h; orders are unaffected because the two
+  definitions differ by a constant factor. The guide explains this once.
 - Order checks are report-only until regression values are frozen after
   S5. Never tune numerics to hit a target order; investigate and report
   unexpected orders instead.
@@ -344,10 +348,13 @@ S4 decisions:
   edge midpoints (13, 41, 145, 545, 2113 nodes), h = 1/2^n. Strong
   Dirichlet with the exact solution on all boundaries, interior
   initialised with the exact solution, two-stage RK at CFL 0.5, maximum
-  nodal error. Compare errors and slopes with the published values,
-  report-only; the Table 1 counts and a mesh-0 closed-form check are hard
-  tests. Any gap larger than a few per cent must be explained in the
-  report.
+  nodal error. Compare errors and slopes with the published values. Hard
+  tests: the Table 1 counts, the mesh-0 closed-form value (mesh 0 is tied
+  to its closed form, not to the paper, whose 5.49e-1 for u1 cannot be a
+  rounding of the exact 0.55), and a 5% tolerance on each published error
+  for meshes 1 to 5 (decided after S4 showed Table 2 catching a fault no
+  other test caught). Any gap larger than a few per cent must be explained
+  in the report.
 
 Output: write u as a `pointScalarField` (front and back points share (x, t);
 match them by coordinates) so ParaView shows the result directly.
