@@ -1,0 +1,205 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/vcfvOrder/Allrun
+#
+# Description
+#     VCFV observed orders on the structured gmsh triangle meshes with left
+#     diagonals (the benchmark family of CLAUDE.md section 6),
+#     N = 8, 16, 32, 64 and 128, for the schemes
+#       VC-1  vertexCentred, reconstruction none
+#       VC-2  vertexCentred, reconstruction linear
+#     both with weak boundary treatment (inflow data only), CFL 0.5 and zero
+#     initialisation, using the travellingSine tutorial case.
+#
+#     REPORT ONLY: the orders are not checked against any window (CLAUDE.md
+#     section 6). The test fails only if a run fails: spaceTime4Foam does
+#     not converge or exits with an error, or spaceTimeErrors does not
+#     write its data line.
+#
+#     Output (in run/):
+#       vcfvOrder.dat        errors, iterations and wall time of every run
+#       vcfvOrderOrders.dat  observed orders between successive meshes,
+#                            p = log(e_coarse/e_fine)/log(h_coarse/h_fine)
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+meshSizes="8 16 32 64 128"
+schemes="VC-1 VC-2"
+
+# reconstruction <scheme>: the vertexCentredCoeffs entry
+function reconstruction()
+{
+    case "$1" in
+    VC-1) echo "none" ;;
+    *) echo "linear" ;;
+    esac
+}
+
+rm -rf run
+mkdir run
+
+resultFile=run/vcfvOrder.dat
+orderFile=run/vcfvOrderOrders.dat
+
+norms="L1_all L2_all Linf_all L1_int L2_int Linf_int L1_bnd L2_bnd Linf_bnd"
+norms="$norms L1_T L2_T Linf_T"
+
+{
+    echo "# VCFV errors on the structured left-diagonal triangle meshes"
+    echo "# (tests/vcfvOrder), weak boundary treatment"
+    echo "# all = all nodes (Linf_all = maximum nodal error), int = interior"
+    echo "# nodes, bnd = boundary nodes, T = nodes on tEnd (t = T)"
+    echo "# scheme N h nUnknowns nIter converged finalResidual wallTime[s]" \
+        "$norms"
+} > "$resultFile"
+
+nFailed=0
+failedRuns=""
+
+for N in $meshSizes
+do
+    # Mesh once per N; all schemes use the same mesh
+    meshDir="run/mesh_N$N"
+    mkdir -p "$meshDir"
+    cp -r "$tutorialDir"/gmsh "$tutorialDir"/system "$tutorialDir"/Allmesh \
+        "$meshDir"/
+    if ! "$meshDir"/Allmesh "$N" left > "$meshDir"/log.Allmesh 2>&1
+    then
+        echo "FAIL: Allmesh $N (see $meshDir/log.Allmesh)"
+        exit 1
+    fi
+
+    for scheme in $schemes
+    do
+        caseDir="run/${scheme}_N$N"
+        mkdir -p "$caseDir"
+        cp -r "$tutorialDir"/constant "$tutorialDir"/system "$caseDir"/
+        cp -r "$meshDir"/constant/polyMesh "$caseDir"/constant/
+
+        echo "Running $scheme on N = $N"
+        (
+            cd "$caseDir" || exit 1
+            props=constant/spaceTimeProperties
+            foamDictionary "$props" -entry spaceTimeModel \
+                -set vertexCentred > /dev/null || exit 1
+            foamDictionary "$props" \
+                -entry vertexCentredCoeffs/reconstruction \
+                -set "$(reconstruction "$scheme")" > /dev/null || exit 1
+            foamDictionary "$props" \
+                -entry vertexCentredCoeffs/boundaryTreatment \
+                -set weak > /dev/null || exit 1
+            runApplication spaceTime4Foam || exit 1
+            runApplication spaceTimeErrors || exit 1
+        )
+        status=$?
+
+        infoFile="$caseDir/postProcessing/spaceTimeSolverInfo.dat"
+        errorFile="$caseDir/postProcessing/spaceTimeErrors/errors.dat"
+
+        info=""
+        if [ -f "$infoFile" ]
+        then
+            info=$(grep -v '^#' "$infoFile" | tail -1)
+        fi
+        errors=""
+        if [ -f "$errorFile" ]
+        then
+            errors=$(grep -v '^#' "$errorFile" | tail -1)
+        fi
+
+        converged=$(echo "$info" | awk '{print $2}')
+        nColumns=$(echo "$errors" | awk '{print NF}')
+
+        if [[ $status -ne 0 ]] || [ "$converged" != "1" ] \
+            || [ "$nColumns" != "18" ]
+        then
+            echo "    FAIL: $scheme N = $N (exit status $status," \
+                "converged '$converged', $nColumns error columns)"
+            nFailed=$((nFailed + 1))
+            failedRuns="$failedRuns ${scheme}_N$N"
+            continue
+        fi
+
+        # scheme N h nUnknowns, info (4 columns), norms (columns 6-17)
+        echo "$scheme $N $info $errors" | awk '{
+            printf "%s %s %s %s %s %s %s %s", $1, $2, $8, $9, $3, $4, $5, $6
+            for (i = 12; i <= 23; i++) { printf " %s", $i }
+            printf "\n"
+        }' >> "$resultFile"
+    done
+done
+
+# Observed orders between successive meshes of the same scheme
+awk -v norms="$norms" '
+    BEGIN {
+        split(norms, name, " ")
+        printf "# Observed orders p = log(e_coarse/e_fine)/log(h_coarse/h_fine)\n"
+        printf "# (nan if an error is below 1e-12, i.e. zero to round-off)\n"
+        printf "# scheme N_coarse N_fine"
+        for (k = 1; k <= 12; k++) { printf " p_%s", name[k] }
+        printf "\n"
+    }
+    /^#/ { next }
+    {
+        # Lines are ordered by N, then scheme: compare with the previous
+        # (coarser) mesh of the same scheme
+        scheme = $1
+        if (scheme in lastN)
+        {
+            line = scheme " " lastN[scheme] " " $2
+            for (k = 1; k <= 12; k++)
+            {
+                ec = last[scheme, k]; ef = $(8 + k)
+                if (ec > 1e-12 && ef > 1e-12)
+                {
+                    p = log(ec/ef)/log(lastH[scheme]/$3)
+                    line = line " " sprintf("%.3f", p)
+                }
+                else
+                {
+                    line = line " nan"
+                }
+            }
+            lines[scheme] = lines[scheme] line "\n"
+        }
+        else
+        {
+            order[++nSchemes] = scheme
+        }
+        lastN[scheme] = $2; lastH[scheme] = $3
+        for (k = 1; k <= 12; k++) { last[scheme, k] = $(8 + k) }
+    }
+    END {
+        for (s = 1; s <= nSchemes; s++) { printf "%s", lines[order[s]] }
+    }
+' "$resultFile" > "$orderFile"
+
+echo
+echo "Errors ($resultFile):"
+grep "^#" "$resultFile"
+grep -v "^#" "$resultFile" | column -t
+echo
+echo "Observed orders ($orderFile):"
+grep "^#" "$orderFile"
+grep -v "^#" "$orderFile" | column -t
+echo
+
+if [[ $nFailed -gt 0 ]]
+then
+    echo "vcfvOrder: $nFailed run(s) FAILED:$failedRuns"
+    exit 1
+fi
+
+echo "vcfvOrder: all runs converged (orders are report-only)"
+
+#------------------------------------------------------------------------------
