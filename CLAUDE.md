@@ -384,7 +384,12 @@ Required sections:
    boundary-node pseudo-time-step deviation from the paper (it changes
    only the convergence path, not the converged solution), the upwind
    sign typo in the paper's Eq. 97 as printed, and the stopping criteria
-   of both methods with the iteration-error check.
+   of both methods with the iteration-error check. Also the Table 2
+   reproduction, including the unexplained mesh-0 u1 gap (exact 0.55
+   against the paper's 5.49e-1; the S4 audit showed no single early
+   stopping point reproduces all three printed mesh-0 values), and the
+   VC-2 structured-mesh superconvergence (interior and t = T orders near
+   3 on structured meshes, falling towards 2 on perturbed meshes).
 6. From 1D+t to 2D+t:
    - CCFV: a 3D OpenFOAM mesh with z = t and space-time velocity
      (u_x, u_y, 1).
