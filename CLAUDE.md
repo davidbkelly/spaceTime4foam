@@ -200,8 +200,10 @@ S5 decisions:
 - Regression values are frozen into a hard test only after the developer
   has reviewed the S5 results.
 - CC-2-LS-EX is unstable on perturbed meshes (S5 finding: a growing mode
-  along the tEnd outflow strip, distinct from the corner mode; non-
-  convergence or floating-point failure on several seeds and N). It stays
+  in an outflow strip, tEnd or xRight (5 of the 9 failed runs peak in
+  xRight), never the interior or the corner; distinct from the corner
+  mode; non-convergence or floating-point failure on 9 of 16 seed and N
+  combinations). It stays
   in the structured and Right runs. On perturbed meshes it runs only as a
   non-fatal stability probe with an iteration cap and a time limit,
   recording each run's outcome and where the residual or update grows.
