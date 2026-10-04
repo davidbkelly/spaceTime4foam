@@ -1,0 +1,98 @@
+# Manifest of the S5 benchmark results
+# travellingSine, a = 1, k = 1, convergence tolerance 1e-10
+# Provenance: spaceTime4foam commit 4b5dc066ff25a5580937068e902152855cb5f39d (dirty 0)
+# OpenFOAM v2412 (darwin64ClangDPInt32Opt), arm64, Apple M4 Pro
+# Runs made 2026-10-04T11:02:54Z to 2026-10-04T11:07:55Z, tables made 2026-10-04T11:07:56Z
+# Total sweep wall time 261.9 s (meshes and runs, serial); see manifest.dat
+commit 4b5dc066ff25a5580937068e902152855cb5f39d
+dirty 0
+openfoam OpenFOAM v2412
+options darwin64ClangDPInt32Opt
+compiler Clang Apple clang version 17.0.0 (clang-1700.0.13.5)
+gmsh 4.15.2-git
+gnuplot gnuplot 6.0 patchlevel 5
+machine arm64
+cpu Apple M4 Pro
+runsFirst 2026-10-04T11:02:54Z
+runsLast 2026-10-04T11:07:55Z
+tablesMade 2026-10-04T11:07:56Z
+maxN 256
+# Wall time [s], serial: meshes (Allmesh) and runs (spaceTime4Foam
+# and spaceTimeErrors, as measured by Allrun, including the
+# CC-2-LS-EX stability probes), per family
+# family nMeshes meshTime nRuns runTime total
+wallTime leftStructured 6 5.2 42 38.3 43.5
+wallTime leftPerturbed 6 6.2 42 99.2 105.4
+wallTime rightStructured 4 2.1 28 17.6 19.7
+wallTime leftPerturbedSeed7 5 3.7 35 44.6 48.3
+wallTime leftPerturbedSeed3 5 3.7 35 41.6 45.3
+wallTimeTotal 261.9
+# Tables (figures/*.png are drawn from them by plotConvergence.gp)
+file CC-1_leftPerturbed.dat
+file CC-1_leftPerturbedSeed3.dat
+file CC-1_leftPerturbedSeed7.dat
+file CC-1_leftStructured.dat
+file CC-1_rightStructured.dat
+file CC-2_leftPerturbed.dat
+file CC-2_leftPerturbedSeed3.dat
+file CC-2_leftPerturbedSeed7.dat
+file CC-2_leftStructured.dat
+file CC-2_rightStructured.dat
+file CC-2-EX_leftPerturbed.dat
+file CC-2-EX_leftPerturbedSeed3.dat
+file CC-2-EX_leftPerturbedSeed7.dat
+file CC-2-EX_leftStructured.dat
+file CC-2-EX_rightStructured.dat
+file CC-2-LS_leftPerturbed.dat
+file CC-2-LS_leftPerturbedSeed3.dat
+file CC-2-LS_leftPerturbedSeed7.dat
+file CC-2-LS_leftStructured.dat
+file CC-2-LS_rightStructured.dat
+file CC-2-LS-EX_leftStructured.dat
+file CC-2-LS-EX_rightStructured.dat
+file ccLsExPerturbedProbe.dat
+file manifest.dat
+file orders_CC-1_leftPerturbed.dat
+file orders_CC-1_leftPerturbedSeed3.dat
+file orders_CC-1_leftPerturbedSeed7.dat
+file orders_CC-1_leftStructured.dat
+file orders_CC-1_rightStructured.dat
+file orders_CC-2_leftPerturbed.dat
+file orders_CC-2_leftPerturbedSeed3.dat
+file orders_CC-2_leftPerturbedSeed7.dat
+file orders_CC-2_leftStructured.dat
+file orders_CC-2_rightStructured.dat
+file orders_CC-2-EX_leftPerturbed.dat
+file orders_CC-2-EX_leftPerturbedSeed3.dat
+file orders_CC-2-EX_leftPerturbedSeed7.dat
+file orders_CC-2-EX_leftStructured.dat
+file orders_CC-2-EX_rightStructured.dat
+file orders_CC-2-LS_leftPerturbed.dat
+file orders_CC-2-LS_leftPerturbedSeed3.dat
+file orders_CC-2-LS_leftPerturbedSeed7.dat
+file orders_CC-2-LS_leftStructured.dat
+file orders_CC-2-LS_rightStructured.dat
+file orders_CC-2-LS-EX_leftStructured.dat
+file orders_CC-2-LS-EX_rightStructured.dat
+file orders_VC-1_leftPerturbed.dat
+file orders_VC-1_leftPerturbedSeed3.dat
+file orders_VC-1_leftPerturbedSeed7.dat
+file orders_VC-1_leftStructured.dat
+file orders_VC-1_rightStructured.dat
+file orders_VC-2_leftPerturbed.dat
+file orders_VC-2_leftPerturbedSeed3.dat
+file orders_VC-2_leftPerturbedSeed7.dat
+file orders_VC-2_leftStructured.dat
+file orders_VC-2_rightStructured.dat
+file seeds.dat
+file summary.dat
+file VC-1_leftPerturbed.dat
+file VC-1_leftPerturbedSeed3.dat
+file VC-1_leftPerturbedSeed7.dat
+file VC-1_leftStructured.dat
+file VC-1_rightStructured.dat
+file VC-2_leftPerturbed.dat
+file VC-2_leftPerturbedSeed3.dat
+file VC-2_leftPerturbedSeed7.dat
+file VC-2_leftStructured.dat
+file VC-2_rightStructured.dat

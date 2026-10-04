@@ -1,0 +1,36 @@
+# CC-2-LS-EX stability probe on the perturbed left-diagonal
+# travellingSine, a = 1, k = 1, convergence tolerance 1e-10
+# Provenance: spaceTime4foam commit 4b5dc066ff25a5580937068e902152855cb5f39d (dirty 0)
+# OpenFOAM v2412 (darwin64ClangDPInt32Opt), arm64, Apple M4 Pro
+# Runs made 2026-10-04T11:02:54Z to 2026-10-04T11:07:55Z, tables made 2026-10-04T11:07:56Z
+# Total sweep wall time 261.9 s (meshes and runs, serial); see manifest.dat
+# CC-2-LS-EX is unstable on perturbed meshes (CLAUDE.md section 6, S5 decisions);
+# these runs are a probe, not results. Iteration cap: endTime 10000 (as for every run);
+# wall-time limit 600 s per run; fields written every 100 iterations.
+# outcome: converged, notConverged (iteration cap), crashedFPE (floating-point exception) or
+# timeLimit. Location columns: the cell with the largest |value| and its centre (x, t);
+# region (h = 1/N): corner (t > 1 - 2h and x > 1 - 2h), tEndStrip (t > 1 - 2h),
+# xRightStrip (x > 1 - 2h), inflowStrip (t < 2h or x < 2h), else interior.
+# err = u - sin(2 pi (x - t)) at the last written time; du = change of u between the last
+# two written times (- for converged runs).
+# Columns:
+#  1 family  2 seed  3 N  4 outcome  5 iterations 6 final residual  7 wall time [s]
+#  8 max|u| at the last written time  9 last written time (iteration)
+# 10 max|err| 11 x 12 t 13 region  14 max|du| 15 x 16 t 17 region
+# 18 corner-fallback faces  19 mesh point-list SHA-1 20 elapsed [s] (measured by Allrun)
+leftPerturbed 12345 8 converged 412 9.748874209e-11 0.009673125 9.3967e-01 412 5.9234e-01 0.7045 0.9530 tEndStrip - - - - 2 d76c6410a2d018656460ccb84a7d4350d50834ce 0
+leftPerturbed 12345 16 converged 673 9.992056253e-11 0.031511291 1.0551e+00 673 6.0179e-01 0.4135 0.9828 tEndStrip - - - - 2 96136baeb2770174c663a488b036b28335370c27 0
+leftPerturbed 12345 32 converged 1031 9.966877097e-11 0.099417167 1.1583e+00 1031 3.7855e-01 0.3965 0.9897 tEndStrip - - - - 2 5e9418dc4210c968299edf13bba6bc95ca78d064 0
+leftPerturbed 12345 64 notConverged 10000 0.004300439778 3.362988167 2.7741e+36 10000 2.7741e+36 0.9909 0.8346 xRightStrip 1.6011e+36 0.9909 0.8346 xRightStrip 2 cecafb44559607ab7dd3b839873899791a91c8b7 3
+leftPerturbed 12345 128 crashedFPE 7736 0.023550687930236763 12 3.0869e+156 7700 3.0869e+156 0.9957 0.9800 xRightStrip 3.0594e+156 0.9957 0.9800 xRightStrip 2 152aa6edcd03ec1122b1aeb4fd85871c5833a785 12
+leftPerturbed 12345 256 crashedFPE 6930 0.026512983662906785 50 5.9833e+156 6900 5.9833e+156 0.9979 0.2985 xRightStrip 5.9537e+156 0.9979 0.2985 xRightStrip 2 b00a64f73412d0285de61deabbf348e8ac7f5503 50
+leftPerturbedSeed7 7 8 converged 223 9.914999285e-11 0.005323583 8.9387e-01 223 7.0074e-01 0.8260 0.9623 corner - - - - 2 c7c531275dfaf2b6cfbb08d265256b67e648d996 1
+leftPerturbedSeed7 7 16 converged 4914 9.980348598e-11 0.194163666 1.1243e+00 4914 1.1088e+00 0.9792 0.9792 corner - - - - 2 3caeb9567df5c919ac00c777537ef0d132039865 1
+leftPerturbedSeed7 7 32 notConverged 10000 0.003409678431 0.995036917 4.6220e+29 10000 4.6220e+29 0.9827 0.0723 xRightStrip 2.2933e+29 0.9827 0.0723 xRightStrip 2 837554609b988d47d5206580a6561db349cb0235 1
+leftPerturbedSeed7 7 64 crashedFPE 7227 0.025115072170311163 5 2.0640e+156 7200 2.0640e+156 0.1628 0.9916 tEndStrip 2.0506e+156 0.1628 0.9916 tEndStrip 2 0f97af4dd660dc2871f6556355c58477e1e6f524 5
+leftPerturbedSeed7 7 128 crashedFPE 9598 0.019056847508760855 16 4.8823e+155 9500 4.8823e+155 0.5891 0.9958 tEndStrip 4.7748e+155 0.5891 0.9958 tEndStrip 2 fd6be29b821d607e87fe6f7ec4efb8e669be5f6a 16
+leftPerturbedSeed3 3 8 converged 640 9.823956032e-11 0.015900708 8.9538e-01 640 6.4581e-01 0.9551 0.8357 corner - - - - 2 412638ae7b8f0b0089fc14263befb751313dd6a4 0
+leftPerturbedSeed3 3 16 crashedFPE 7101 0.025386555577185953 2 1.3981e+156 7100 1.3981e+156 0.3985 0.9656 tEndStrip 1.3895e+156 0.3985 0.9656 tEndStrip 2 7d5eb30e3a2f5f34b1fd14e86d0611197d631f91 2
+leftPerturbedSeed3 3 32 converged 1071 9.902233673e-11 0.105884083 1.0031e+00 1071 3.6506e-01 0.0533 0.9915 tEndStrip - - - - 2 b92cb3b30609f4929edb74d56378c34213f3f23d 0
+leftPerturbedSeed3 3 64 notConverged 10000 0.009234841507 3.464593375 4.7758e+79 10000 4.7758e+79 0.9912 0.0375 xRightStrip 4.0259e+79 0.9912 0.0375 xRightStrip 2 f5fcea116e7cbcdece5c5f7e70b4d6a9f3d60fb7 3
+leftPerturbedSeed3 3 128 crashedFPE 9858 0.018570969302331795 16 1.8883e+156 9800 1.8883e+156 0.8860 0.9957 tEndStrip 1.8424e+156 0.8860 0.9957 tEndStrip 2 9a1425b1133de9c19047b6b481e660cb6ee4c049 16

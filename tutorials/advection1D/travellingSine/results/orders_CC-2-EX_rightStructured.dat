@@ -1,0 +1,13 @@
+# CC-2-EX: observed orders, structured right triangles, right diagonals (Allmesh N right): CHARACTERISTIC-ALIGNMENT ILLUSTRATION, not a main result
+# travellingSine, a = 1, k = 1, convergence tolerance 1e-10
+# Provenance: spaceTime4foam commit 4b5dc066ff25a5580937068e902152855cb5f39d (dirty 0)
+# OpenFOAM v2412 (darwin64ClangDPInt32Opt), arm64, Apple M4 Pro
+# Runs made 2026-10-04T11:02:54Z to 2026-10-04T11:07:55Z, tables made 2026-10-04T11:07:56Z
+# Total sweep wall time 261.9 s (meshes and runs, serial); see manifest.dat
+# p = log(e_coarse/e_fine)/log(h_coarse/h_fine), h = 1/N; computed from CC-2-EX_rightStructured.dat
+# - : no such error for this method; nan: an error below 1e-12 (zero to round-off)
+# T = primary t = T value, TExtrap/TCell = CCFV extrapolated/cell value
+# N_coarse N_fine p_L1_all p_L2_all p_Linf_all p_L1_int p_L2_int p_Linf_int p_L1_bnd p_L2_bnd p_Linf_bnd p_L1_T p_L2_T p_Linf_T p_L1_TExtrap p_L2_TExtrap p_Linf_TExtrap p_L1_TCell p_L2_TCell p_Linf_TCell
+8 16 2.064 2.116 1.939 1.984 2.025 2.065 2.001 1.981 1.939 nan nan nan nan nan nan 1.033 1.055 1.050
+16 32 2.029 2.065 1.984 1.986 1.998 2.019 2.012 2.004 1.984 nan nan nan nan nan nan 1.012 1.017 1.015
+32 64 2.014 2.033 1.996 1.993 1.996 2.005 2.009 2.004 1.996 nan nan nan nan nan nan 1.003 1.004 1.004

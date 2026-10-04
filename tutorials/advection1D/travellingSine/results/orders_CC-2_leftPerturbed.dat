@@ -1,0 +1,15 @@
+# CC-2: observed orders, perturbed left-diagonal triangles, seed 12345 (Allmesh N left perturbed 12345)
+# travellingSine, a = 1, k = 1, convergence tolerance 1e-10
+# Provenance: spaceTime4foam commit 4b5dc066ff25a5580937068e902152855cb5f39d (dirty 0)
+# OpenFOAM v2412 (darwin64ClangDPInt32Opt), arm64, Apple M4 Pro
+# Runs made 2026-10-04T11:02:54Z to 2026-10-04T11:07:55Z, tables made 2026-10-04T11:07:56Z
+# Total sweep wall time 261.9 s (meshes and runs, serial); see manifest.dat
+# p = log(e_coarse/e_fine)/log(h_coarse/h_fine), h = 1/N; computed from CC-2_leftPerturbed.dat
+# - : no such error for this method; nan: an error below 1e-12 (zero to round-off)
+# T = primary t = T value, TExtrap/TCell = CCFV extrapolated/cell value
+# N_coarse N_fine p_L1_all p_L2_all p_Linf_all p_L1_int p_L2_int p_Linf_int p_L1_bnd p_L2_bnd p_Linf_bnd p_L1_T p_L2_T p_Linf_T p_L1_TExtrap p_L2_TExtrap p_Linf_TExtrap p_L1_TCell p_L2_TCell p_Linf_TCell
+8 16 2.107 2.101 1.779 2.186 2.180 1.810 1.692 1.694 1.735 1.840 1.795 1.578 2.027 1.949 1.443 1.840 1.795 1.578
+16 32 2.035 1.876 0.692 2.134 2.114 1.499 1.041 0.929 0.692 1.927 1.714 0.807 1.277 1.150 0.775 1.927 1.714 0.807
+32 64 1.426 1.376 1.157 1.384 1.332 1.194 1.051 0.995 1.157 1.514 1.540 1.294 1.117 1.132 1.343 1.514 1.540 1.294
+64 128 1.181 1.184 0.790 1.139 1.090 0.832 0.981 0.968 0.790 1.381 1.354 1.619 1.026 1.049 1.077 1.381 1.354 1.619
+128 256 1.041 1.068 0.934 1.012 0.991 0.913 0.969 0.968 0.934 1.093 1.086 0.693 0.980 0.976 0.900 1.093 1.086 0.693

@@ -1,0 +1,184 @@
+# Summary of the S5 benchmark
+# travellingSine, a = 1, k = 1, convergence tolerance 1e-10
+# Provenance: spaceTime4foam commit 4b5dc066ff25a5580937068e902152855cb5f39d (dirty 0)
+# OpenFOAM v2412 (darwin64ClangDPInt32Opt), arm64, Apple M4 Pro
+# Runs made 2026-10-04T11:02:54Z to 2026-10-04T11:07:55Z, tables made 2026-10-04T11:07:56Z
+# Total sweep wall time 261.9 s (meshes and runs, serial); see manifest.dat
+#
+# Part 1: observed orders of the finest pair of meshes
+# (p = log(e_c/e_f)/log(h_c/h_f), h = 1/N), next to the theoretical order
+# T = primary t = T value: the written tEnd boundary value for CCFV
+# (u_P for CC-1, CC-2 and CC-2-LS; the extrapolated value for the EX
+# schemes, u_P on the corner-fallback face); the nodal value for VCFV
+# CC-2-LS-EX on the perturbed families is unstable and is reported
+# only in ccLsExPerturbedProbe.dat (no result rows, orders or
+# matched-unknown errors).
+# family scheme theory N_coarse N_fine p_L1_all p_L2_all p_Linf_all p_L1_int p_L2_int p_Linf_int p_L1_bnd p_L2_bnd p_Linf_bnd p_L1_T p_L2_T p_Linf_T
+leftStructured CC-1 1 128 256 0.925 0.919 0.897 0.927 0.919 0.897 0.925 0.908 0.897 0.914 0.905 0.893
+leftStructured CC-2 2 128 256 2.065 1.509 0.988 2.098 1.608 0.978 0.997 0.985 0.988 2.047 1.546 1.000
+leftStructured CC-2-LS 2 128 256 2.049 1.499 0.988 2.087 1.574 0.977 0.983 0.985 0.988 2.034 1.547 1.000
+leftStructured CC-2-EX 2 128 256 2.170 2.135 2.120 2.164 2.128 2.120 2.070 2.086 2.137 2.331 1.503 1.000
+leftStructured CC-2-LS-EX 2 128 256 2.049 1.517 1.001 2.078 1.552 1.002 0.997 1.002 1.001 1.957 1.510 0.994
+leftStructured VC-1 1 128 256 0.924 0.918 0.891 0.926 0.918 0.893 0.924 0.906 0.891 0.911 0.903 0.891
+leftStructured VC-2 2 128 256 2.966 2.732 2.001 2.967 2.933 2.009 2.093 2.014 2.001 2.985 2.989 2.990
+leftPerturbed CC-1 1 128 256 0.928 0.920 0.904 0.930 0.920 0.904 0.928 0.910 0.902 0.913 0.906 0.884
+leftPerturbed CC-2 2 128 256 1.041 1.068 0.934 1.012 0.991 0.913 0.969 0.968 0.934 1.093 1.086 0.693
+leftPerturbed CC-2-LS 2 128 256 2.021 1.491 1.038 2.054 1.597 1.036 0.964 0.969 1.038 1.144 1.191 1.462
+leftPerturbed CC-2-EX 2 128 256 0.994 0.965 0.826 0.996 0.967 0.826 1.164 1.067 1.046 1.072 1.137 0.987
+leftPerturbed VC-1 1 128 256 0.913 0.906 0.868 0.914 0.905 0.879 0.912 0.889 0.868 0.900 0.890 0.872
+leftPerturbed VC-2 2 128 256 2.079 2.035 2.167 2.060 2.000 1.801 2.101 2.053 2.189 2.400 2.386 2.282
+rightStructured CC-1 1 32 64 1.002 1.000 0.996 1.002 1.001 0.996 0.995 0.994 0.996 nan nan nan
+rightStructured CC-2 2 32 64 1.970 1.527 0.996 1.983 1.861 1.172 1.036 1.006 0.996 nan nan nan
+rightStructured CC-2-LS 2 32 64 1.959 1.541 0.996 1.986 1.943 1.143 1.003 1.003 0.996 nan nan nan
+rightStructured CC-2-EX 2 32 64 2.014 2.033 1.996 1.993 1.996 2.005 2.009 2.004 1.996 nan nan nan
+rightStructured CC-2-LS-EX 2 32 64 1.954 1.492 0.988 1.991 1.939 0.879 0.976 0.976 0.988 nan nan nan
+rightStructured VC-1 1 32 64 0.910 0.900 0.853 0.916 0.900 0.847 0.898 0.880 0.853 0.878 0.872 0.853
+rightStructured VC-2 2 32 64 2.905 2.746 1.999 2.903 2.904 2.834 2.196 2.070 1.999 2.955 2.962 3.000
+leftPerturbedSeed7 CC-1 1 64 128 0.877 0.861 0.813 0.881 0.862 0.813 0.888 0.858 0.815 0.851 0.834 0.800
+leftPerturbedSeed7 CC-2 2 64 128 1.211 1.209 0.783 1.171 1.129 0.760 0.967 0.951 0.783 1.256 1.193 1.039
+leftPerturbedSeed7 CC-2-LS 2 64 128 2.075 1.516 0.667 2.137 1.734 0.852 0.960 0.953 0.667 1.362 1.279 0.979
+leftPerturbedSeed7 CC-2-EX 2 64 128 1.153 1.101 0.750 1.153 1.101 0.750 1.458 1.371 1.351 1.090 1.125 0.787
+leftPerturbedSeed7 VC-1 1 64 128 0.862 0.843 0.766 0.865 0.843 0.778 0.863 0.830 0.766 0.819 0.807 0.766
+leftPerturbedSeed7 VC-2 2 64 128 2.315 2.248 1.851 2.291 2.219 2.142 2.140 2.033 1.851 2.691 2.632 2.475
+leftPerturbedSeed3 CC-1 1 64 128 0.877 0.860 0.808 0.881 0.861 0.806 0.874 0.840 0.813 0.845 0.835 0.811
+leftPerturbedSeed3 CC-2 2 64 128 1.190 1.185 0.857 1.150 1.095 0.804 0.962 0.956 0.857 1.262 1.264 1.354
+leftPerturbedSeed3 CC-2-LS 2 64 128 2.060 1.527 0.899 2.116 1.745 1.120 0.949 0.958 0.899 1.356 1.347 1.304
+leftPerturbedSeed3 CC-2-EX 2 64 128 1.126 1.056 1.013 1.129 1.060 1.013 1.356 1.252 0.690 1.214 1.210 1.045
+leftPerturbedSeed3 VC-1 1 64 128 0.850 0.835 0.775 0.853 0.835 0.770 0.839 0.807 0.775 0.816 0.804 0.778
+leftPerturbedSeed3 VC-2 2 64 128 2.332 2.267 2.033 2.305 2.228 1.829 2.200 2.108 2.033 2.693 2.636 2.066
+#
+# Part 2: errors at matched numbers of unknowns n (accuracy per
+# unknown). Method: linear interpolation of log(error) against
+# log(nUnknowns) between the two meshes of the family that bracket
+# n; - if n is outside the range of the family (no extrapolation).
+# Norms: L1/L2/Linf over all unknowns, and L2 of the primary t = T
+# value.
+# family scheme norm  e(n=1000) e(n=3000) e(n=10000) e(n=30000) e(n=60000)
+leftStructured CC-1 L1_all 2.4803e-01 1.6960e-01 1.0507e-01 6.5124e-02 4.7372e-02
+leftStructured CC-1 L2_all 3.0738e-01 2.1270e-01 1.3341e-01 8.3357e-02 6.0797e-02
+leftStructured CC-1 Linf_all 7.0474e-01 5.1599e-01 3.3936e-01 2.1794e-01 1.6037e-01
+leftStructured CC-1 L2_T 4.0495e-01 2.9248e-01 1.8874e-01 1.1971e-01 8.7786e-02
+leftStructured CC-2 L1_all 2.3076e-02 6.7036e-03 1.8115e-03 5.6719e-04 2.7672e-04
+leftStructured CC-2 L2_all 3.2931e-02 1.1507e-02 4.2621e-03 1.8309e-03 1.0837e-03
+leftStructured CC-2 Linf_all 1.4419e-01 8.2843e-02 5.1631e-02 3.0671e-02 2.1815e-02
+leftStructured CC-2 L2_T 6.2426e-02 2.1732e-02 7.6173e-03 3.1448e-03 1.8350e-03
+leftStructured CC-2-LS L1_all 2.0430e-02 5.9640e-03 1.6480e-03 5.2292e-04 2.5661e-04
+leftStructured CC-2-LS L2_all 3.0091e-02 1.0825e-02 4.1327e-03 1.7986e-03 1.0689e-03
+leftStructured CC-2-LS Linf_all 1.4365e-01 8.2563e-02 5.0272e-02 2.9846e-02 2.1226e-02
+leftStructured CC-2-LS L2_T 6.0545e-02 2.1424e-02 7.5877e-03 3.1379e-03 1.8306e-03
+leftStructured CC-2-EX L1_all 2.0964e-02 5.4090e-03 1.2780e-03 3.6449e-04 1.7096e-04
+leftStructured CC-2-EX L2_all 2.6564e-02 6.8432e-03 1.6312e-03 4.7391e-04 2.2498e-04
+leftStructured CC-2-EX Linf_all 7.8779e-02 2.1972e-02 5.4384e-03 1.6144e-03 7.7121e-04
+leftStructured CC-2-EX L2_T 4.2560e-02 1.4478e-02 5.3759e-03 2.3262e-03 1.3803e-03
+leftStructured CC-2-LS-EX L1_all 2.2088e-02 6.3566e-03 1.7195e-03 5.4414e-04 2.6691e-04
+leftStructured CC-2-LS-EX L2_all 3.3067e-02 1.1530e-02 4.1859e-03 1.7775e-03 1.0487e-03
+leftStructured CC-2-LS-EX Linf_all 1.7983e-01 9.9327e-02 5.3682e-02 3.0904e-02 2.1840e-02
+leftStructured CC-2-LS-EX L2_T 7.0636e-02 3.0717e-02 1.2399e-02 5.4033e-03 3.2013e-03
+leftStructured VC-1 L1_all 2.0165e-01 1.3096e-01 7.8272e-02 4.7586e-02 3.4481e-02
+leftStructured VC-1 L2_all 2.5161e-01 1.6547e-01 9.9907e-02 6.1084e-02 4.4362e-02
+leftStructured VC-1 Linf_all 6.0918e-01 4.2211e-01 2.6505e-01 1.6564e-01 1.2143e-01
+leftStructured VC-1 L2_T 3.3922e-01 2.3050e-01 1.4233e-01 8.8076e-02 6.4303e-02
+leftStructured VC-2 L1_all 9.4360e-03 1.9084e-03 3.2235e-04 6.2883e-05 2.2366e-05
+leftStructured VC-2 L2_all 1.1578e-02 2.4245e-03 4.4030e-04 9.5445e-05 3.6833e-05
+leftStructured VC-2 Linf_all 3.8334e-02 1.2275e-02 3.5975e-03 1.1864e-03 5.9065e-04
+leftStructured VC-2 L2_T 1.4800e-02 2.9030e-03 4.7762e-04 9.1623e-05 3.2326e-05
+leftPerturbed CC-1 L1_all 2.4414e-01 1.6688e-01 1.0333e-01 6.3828e-02 4.6383e-02
+leftPerturbed CC-1 L2_all 3.0130e-01 2.0882e-01 1.3104e-01 8.1599e-02 5.9473e-02
+leftPerturbed CC-1 Linf_all 6.9099e-01 5.0844e-01 3.3654e-01 2.1766e-01 1.5990e-01
+leftPerturbed CC-1 L2_T 3.9598e-01 2.8722e-01 1.8500e-01 1.1705e-01 8.5781e-02
+leftPerturbed CC-2 L1_all 2.7001e-02 9.9189e-03 4.3081e-03 2.2516e-03 1.5599e-03
+leftPerturbed CC-2 L2_all 3.6489e-02 1.4323e-02 6.3760e-03 3.3275e-03 2.2864e-03
+leftPerturbed CC-2 Linf_all 1.7132e-01 1.0721e-01 5.5415e-02 3.5905e-02 2.6145e-02
+leftPerturbed CC-2 L2_T 7.1528e-02 2.8838e-02 1.1627e-02 5.5262e-03 3.7482e-03
+leftPerturbed CC-2-LS L1_all 2.1023e-02 6.1731e-03 1.7091e-03 5.4588e-04 2.7029e-04
+leftPerturbed CC-2-LS L2_all 3.0757e-02 1.1118e-02 4.1204e-03 1.7796e-03 1.0598e-03
+leftPerturbed CC-2-LS Linf_all 1.5818e-01 9.7408e-02 5.4399e-02 3.3154e-02 2.3275e-02
+leftPerturbed CC-2-LS L2_T 6.6549e-02 2.6348e-02 9.9626e-03 4.5389e-03 2.9726e-03
+leftPerturbed CC-2-EX L1_all 2.5074e-02 8.7619e-03 3.8637e-03 2.0939e-03 1.4759e-03
+leftPerturbed CC-2-EX L2_all 3.1313e-02 1.0967e-02 5.0532e-03 2.8346e-03 2.0213e-03
+leftPerturbed CC-2-EX Linf_all 1.0727e-01 4.5066e-02 2.3318e-02 1.5028e-02 1.1298e-02
+leftPerturbed CC-2-EX L2_T 5.2832e-02 2.1769e-02 9.6909e-03 5.4066e-03 3.6574e-03
+leftPerturbed VC-1 L1_all 2.1969e-01 1.4435e-01 8.6933e-02 5.3160e-02 3.8670e-02
+leftPerturbed VC-1 L2_all 2.7188e-01 1.8138e-01 1.1059e-01 6.8083e-02 4.9655e-02
+leftPerturbed VC-1 Linf_all 6.4642e-01 4.5635e-01 2.9285e-01 1.8599e-01 1.3744e-01
+leftPerturbed VC-1 L2_T 3.6258e-01 2.5056e-01 1.5673e-01 9.7824e-02 7.1743e-02
+leftPerturbed VC-2 L1_all 1.0370e-02 2.4710e-03 5.7870e-04 1.7244e-04 8.3542e-05
+leftPerturbed VC-2 L2_all 1.3186e-02 3.2169e-03 7.8074e-04 2.3977e-04 1.1795e-04
+leftPerturbed VC-2 Linf_all 5.2539e-02 1.4907e-02 5.0513e-03 1.7727e-03 8.3306e-04
+leftPerturbed VC-2 L2_T 1.6889e-02 3.7236e-03 7.5014e-04 1.8952e-04 8.2522e-05
+rightStructured CC-1 L1_all 2.9923e-02 1.7233e-02 - - -
+rightStructured CC-1 L2_all 3.3112e-02 1.9118e-02 - - -
+rightStructured CC-1 Linf_all 4.6427e-02 2.6966e-02 - - -
+rightStructured CC-1 L2_T - - - - -
+rightStructured CC-2 L1_all 3.4863e-03 1.1836e-03 - - -
+rightStructured CC-2 L2_all 7.5095e-03 3.2147e-03 - - -
+rightStructured CC-2 Linf_all 4.6427e-02 2.6966e-02 - - -
+rightStructured CC-2 L2_T 2.0011e-17 1.5737e-17 - - -
+rightStructured CC-2-LS L1_all 4.5689e-03 1.5712e-03 - - -
+rightStructured CC-2-LS L2_all 8.1057e-03 3.4341e-03 - - -
+rightStructured CC-2-LS Linf_all 4.6427e-02 2.6966e-02 - - -
+rightStructured CC-2-LS L2_T 3.2848e-17 3.6557e-17 - - -
+rightStructured CC-2-EX L1_all 2.1562e-03 7.0948e-04 - - -
+rightStructured CC-2-EX L2_all 2.4923e-03 8.0652e-04 - - -
+rightStructured CC-2-EX Linf_all 7.2866e-03 2.4444e-03 - - -
+rightStructured CC-2-EX L2_T 8.2369e-14 3.6079e-14 - - -
+rightStructured CC-2-LS-EX L1_all 5.3853e-03 1.8619e-03 - - -
+rightStructured CC-2-LS-EX L2_all 1.1827e-02 5.2281e-03 - - -
+rightStructured CC-2-LS-EX Linf_all 7.8683e-02 4.6351e-02 - - -
+rightStructured CC-2-LS-EX L2_T 3.1512e-14 4.1964e-14 - - -
+rightStructured VC-1 L1_all 8.4680e-02 5.0925e-02 - - -
+rightStructured VC-1 L2_all 1.0798e-01 6.5285e-02 - - -
+rightStructured VC-1 Linf_all 2.8185e-01 1.7543e-01 - - -
+rightStructured VC-1 L2_T 1.5183e-01 9.3359e-02 - - -
+rightStructured VC-2 L1_all 1.3582e-03 2.6631e-04 - - -
+rightStructured VC-2 L2_all 1.7896e-03 3.8198e-04 - - -
+rightStructured VC-2 Linf_all 7.9511e-03 2.5817e-03 - - -
+rightStructured VC-2 L2_T 2.0778e-03 3.9393e-04 - - -
+leftPerturbedSeed7 CC-1 L1_all 2.4570e-01 1.6731e-01 1.0322e-01 6.3753e-02 -
+leftPerturbedSeed7 CC-1 L2_all 3.0345e-01 2.0906e-01 1.3080e-01 8.1489e-02 -
+leftPerturbedSeed7 CC-1 Linf_all 6.9645e-01 5.0797e-01 3.3668e-01 2.1543e-01 -
+leftPerturbedSeed7 CC-1 L2_T 3.9920e-01 2.8770e-01 1.8500e-01 1.1698e-01 -
+leftPerturbedSeed7 CC-2 L1_all 2.7331e-02 9.8763e-03 4.3406e-03 2.2322e-03 -
+leftPerturbedSeed7 CC-2 L2_all 3.6344e-02 1.4145e-02 6.4678e-03 3.3301e-03 -
+leftPerturbedSeed7 CC-2 Linf_all 1.7410e-01 1.0188e-01 5.9624e-02 3.8773e-02 -
+leftPerturbedSeed7 CC-2 L2_T 6.5801e-02 2.5286e-02 1.1307e-02 5.8707e-03 -
+leftPerturbedSeed7 CC-2-LS L1_all 2.0577e-02 6.0978e-03 1.7067e-03 5.4583e-04 -
+leftPerturbedSeed7 CC-2-LS L2_all 2.9772e-02 1.0891e-02 4.1928e-03 1.8234e-03 -
+leftPerturbedSeed7 CC-2-LS Linf_all 1.5565e-01 8.9708e-02 5.5168e-02 3.8238e-02 -
+leftPerturbedSeed7 CC-2-LS L2_T 5.8946e-02 2.2902e-02 1.0126e-02 5.0153e-03 -
+leftPerturbedSeed7 CC-2-EX L1_all 2.6026e-02 8.9419e-03 3.9014e-03 2.0705e-03 -
+leftPerturbedSeed7 CC-2-EX L2_all 3.2411e-02 1.1384e-02 5.1671e-03 2.8229e-03 -
+leftPerturbedSeed7 CC-2-EX Linf_all 1.0061e-01 4.5517e-02 2.4878e-02 1.6480e-02 -
+leftPerturbedSeed7 CC-2-EX L2_T 5.5724e-02 2.2433e-02 1.0427e-02 5.6200e-03 -
+leftPerturbedSeed7 VC-1 L1_all 2.2075e-01 1.4480e-01 8.7030e-02 - -
+leftPerturbedSeed7 VC-1 L2_all 2.7309e-01 1.8181e-01 1.1072e-01 - -
+leftPerturbedSeed7 VC-1 Linf_all 6.4950e-01 4.5735e-01 2.9297e-01 - -
+leftPerturbedSeed7 VC-1 L2_T 3.6369e-01 2.5093e-01 1.5690e-01 - -
+leftPerturbedSeed7 VC-2 L1_all 1.0202e-02 2.4444e-03 5.7227e-04 - -
+leftPerturbedSeed7 VC-2 L2_all 1.2882e-02 3.1845e-03 7.7489e-04 - -
+leftPerturbedSeed7 VC-2 Linf_all 5.1340e-02 1.5622e-02 4.8023e-03 - -
+leftPerturbedSeed7 VC-2 L2_T 1.6782e-02 3.5946e-03 7.0508e-04 - -
+leftPerturbedSeed3 CC-1 L1_all 2.4441e-01 1.6681e-01 1.0328e-01 6.3809e-02 -
+leftPerturbedSeed3 CC-1 L2_all 3.0222e-01 2.0909e-01 1.3083e-01 8.1565e-02 -
+leftPerturbedSeed3 CC-1 Linf_all 6.9926e-01 5.1243e-01 3.3481e-01 2.1485e-01 -
+leftPerturbedSeed3 CC-1 L2_T 3.9975e-01 2.8791e-01 1.8530e-01 1.1713e-01 -
+leftPerturbedSeed3 CC-2 L1_all 2.7007e-02 1.0136e-02 4.4166e-03 2.2968e-03 -
+leftPerturbedSeed3 CC-2 L2_all 3.6372e-02 1.4428e-02 6.5167e-03 3.3991e-03 -
+leftPerturbedSeed3 CC-2 Linf_all 1.7456e-01 1.0241e-01 6.1085e-02 3.8142e-02 -
+leftPerturbedSeed3 CC-2 L2_T 6.5930e-02 2.5473e-02 1.1364e-02 5.6756e-03 -
+leftPerturbedSeed3 CC-2-LS L1_all 2.0923e-02 6.1522e-03 1.6972e-03 5.4750e-04 -
+leftPerturbedSeed3 CC-2-LS L2_all 3.0652e-02 1.1101e-02 4.1876e-03 1.8100e-03 -
+leftPerturbedSeed3 CC-2-LS Linf_all 1.6136e-01 9.6443e-02 5.5380e-02 3.3801e-02 -
+leftPerturbedSeed3 CC-2-LS L2_T 6.2726e-02 2.3815e-02 9.5936e-03 4.5782e-03 -
+leftPerturbedSeed3 CC-2-EX L1_all 2.5350e-02 9.0225e-03 3.9647e-03 2.1359e-03 -
+leftPerturbedSeed3 CC-2-EX L2_all 3.1731e-02 1.1351e-02 5.1965e-03 2.9087e-03 -
+leftPerturbedSeed3 CC-2-EX Linf_all 9.0303e-02 4.1000e-02 2.9735e-02 1.7043e-02 -
+leftPerturbedSeed3 CC-2-EX L2_T 5.0443e-02 2.1729e-02 1.0848e-02 5.5808e-03 -
+leftPerturbedSeed3 VC-1 L1_all 2.1767e-01 1.4356e-01 8.6930e-02 - -
+leftPerturbedSeed3 VC-1 L2_all 2.7095e-01 1.8084e-01 1.1062e-01 - -
+leftPerturbedSeed3 VC-1 Linf_all 6.4789e-01 4.5696e-01 2.9173e-01 - -
+leftPerturbedSeed3 VC-1 L2_T 3.6259e-01 2.5046e-01 1.5684e-01 - -
+leftPerturbedSeed3 VC-2 L1_all 1.0128e-02 2.4696e-03 5.7756e-04 - -
+leftPerturbedSeed3 VC-2 L2_all 1.2640e-02 3.2051e-03 7.8133e-04 - -
+leftPerturbedSeed3 VC-2 Linf_all 4.9981e-02 1.6561e-02 4.8460e-03 - -
+leftPerturbedSeed3 VC-2 L2_T 1.6150e-02 3.4915e-03 6.8773e-04 - -

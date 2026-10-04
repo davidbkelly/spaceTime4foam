@@ -1,0 +1,15 @@
+# VC-1: observed orders, structured right triangles, left diagonals (Allmesh N left)
+# travellingSine, a = 1, k = 1, convergence tolerance 1e-10
+# Provenance: spaceTime4foam commit 4b5dc066ff25a5580937068e902152855cb5f39d (dirty 0)
+# OpenFOAM v2412 (darwin64ClangDPInt32Opt), arm64, Apple M4 Pro
+# Runs made 2026-10-04T11:02:54Z to 2026-10-04T11:07:55Z, tables made 2026-10-04T11:07:56Z
+# Total sweep wall time 261.9 s (meshes and runs, serial); see manifest.dat
+# p = log(e_coarse/e_fine)/log(h_coarse/h_fine), h = 1/N; computed from VC-1_leftStructured.dat
+# - : no such error for this method; nan: an error below 1e-12 (zero to round-off)
+# T = primary t = T value, TExtrap/TCell = CCFV extrapolated/cell value
+# N_coarse N_fine p_L1_all p_L2_all p_Linf_all p_L1_int p_L2_int p_Linf_int p_L1_bnd p_L2_bnd p_Linf_bnd p_L1_T p_L2_T p_Linf_T p_L1_TExtrap p_L2_TExtrap p_Linf_TExtrap p_L1_TCell p_L2_TCell p_Linf_TCell
+8 16 0.453 0.452 0.280 0.487 0.485 0.303 0.453 0.373 0.280 0.330 0.317 0.280 - - - - - -
+16 32 0.642 0.618 0.487 0.659 0.628 0.499 0.609 0.551 0.487 0.527 0.523 0.487 - - - - - -
+32 64 0.778 0.756 0.666 0.784 0.758 0.663 0.763 0.714 0.666 0.717 0.701 0.666 - - - - - -
+64 128 0.869 0.855 0.800 0.872 0.855 0.800 0.863 0.832 0.800 0.838 0.825 0.800 - - - - - -
+128 256 0.924 0.918 0.891 0.926 0.918 0.893 0.924 0.906 0.891 0.911 0.903 0.891 - - - - - -
