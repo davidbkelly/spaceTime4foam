@@ -74,6 +74,14 @@ postProcessing/
 VTK/
 *.foam
 
+# S5 benchmark sweep: the run directory is ignored; of the results only
+# the tables (.dat) and figures (.png) are tracked
+tutorials/advection1D/travellingSine/run/
+tutorials/advection1D/travellingSine/results/**
+!tutorials/advection1D/travellingSine/results/**/
+!tutorials/advection1D/travellingSine/results/**/*.dat
+!tutorials/advection1D/travellingSine/results/**/*.png
+
 # editor and misc backup files - anywhere
 *~
 .*~
