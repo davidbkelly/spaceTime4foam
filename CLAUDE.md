@@ -199,6 +199,19 @@ S5 decisions:
   max, mean) of errors and finest-pair orders.
 - Regression values are frozen into a hard test only after the developer
   has reviewed the S5 results.
+- CC-2-LS-EX is unstable on perturbed meshes (S5 finding: a growing mode
+  along the tEnd outflow strip, distinct from the corner mode; non-
+  convergence or floating-point failure on several seeds and N). It stays
+  in the structured and Right runs. On perturbed meshes it runs only as a
+  non-fatal stability probe with an iteration cap and a time limit,
+  recording each run's outcome and where the residual or update grows.
+  The relaxed hard check applies to CC-2-LS-EX on perturbed meshes only.
+- Primary t = T value for every CCFV scheme: the written tEnd boundary
+  values of u (u_P for zeroGradient, the extrapolated value for EX, u_P on
+  corner-fallback faces), refreshed from the final converged state before
+  writing. The extrapolated and cell versions are kept as extra columns.
+- Corner-fallback face count: 2 on Left meshes (structured and perturbed),
+  0 on Right meshes, because no Right-diagonal cell has two outflow faces.
 
 Write all results as plain-text `.dat` files and produce convergence plots
 (PNG) with gnuplot. Ask before using Python for anything. Standing
@@ -279,8 +292,10 @@ a != 1, which would then dominate Linf; for a = 1 the corner cell value
 is unaffected. Upgrade path for a != 1 (for example a multi-rate
 benchmark): take the corner cell's gradient from its upwind neighbour.
 
-With the fallback, CC-2-LS-EX converges stably (contraction about 0.91,
-independent of N, from a local mode near the outflow corner), but it is
+With the fallback, CC-2-LS-EX converges stably on structured meshes
+(contraction about 0.91, independent of N, from a local mode near the
+outflow corner; on perturbed meshes it is unstable, see the S5 decisions
+in section 6), but it is
 still first order in the outflow strip (S2b audit). Cause: v2412
 `leastSquares` uses the normal-only boundary offset `fvPatch::delta()`,
 while the extrapolation uses the full offset, so the combination is not
