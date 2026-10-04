@@ -44,7 +44,7 @@
 #     keeping the run directory of the failed case):
 #       - spaceTime4Foam and spaceTimeErrors exit with status 0 and the run
 #         converged (converged = 1 in spaceTimeSolverInfo.dat);
-#       - errors.dat has 21 (cellCentred) or 19 (vertexCentred) columns and
+#       - errors.dat has 24 (cellCentred) or 19 (vertexCentred) columns and
 #         its nominal h column is a number equal to 1/N;
 #       - nUnknowns = 2 N^2 (cellCentred) or (N + 1)^2 (vertexCentred,
 #         weak closure);
@@ -52,6 +52,21 @@
 #         2 on the left-diagonal families and 0 on the right-diagonal
 #         family, which has no cell with two outflow faces;
 #       - the point-list checksum of every case equals that of its mesh.
+#
+#     Stability probe (CLAUDE.md section 6, S5 decisions): CC-2-LS-EX is
+#     unstable on perturbed meshes, so on the perturbed families (seed 12345
+#     and the seed study) it runs only as a probe: the same iteration cap
+#     (endTime 10000), a wall-time limit of probeTimeLimit seconds, and
+#     writes every 100 iterations. Its outcome (converged, notConverged,
+#     crashedFPE or timeLimit), and the location and region of the largest
+#     |u - u_exact| and of the largest change of u between the last two
+#     written times, go to results/ccLsExPerturbedProbe.dat, never to the
+#     result tables. Only the convergence check is relaxed, and only for
+#     these runs: probeSelfCheck stops the script if the relaxation could
+#     apply to any other (family, scheme).
+#
+#     Primary t = T value: the written tEnd boundary values (errors.dat
+#     columns 21-23) for CCFV, the nodal values for VCFV.
 #
 #     Restartable: every finished run leaves a one-line record in
 #     run/rows/, and is not repeated unless -force is given. The case
@@ -92,6 +107,11 @@ extraSeeds="7 3"
 seedMaxN=128
 alignedMaxN=64
 seedTimeLimit=1800
+
+# CC-2-LS-EX on the perturbed families (stability probe): wall-time limit
+# of one run [s]. The iteration cap is endTime of system/controlDict
+# (10000), as for every other run
+probeTimeLimit=600
 
 # The time keyword prints the elapsed (real) time in seconds only
 TIMEFORMAT=%R
@@ -390,6 +410,267 @@ function solveCase()
     runApplication spaceTimeErrors -nominalH "$nominalH" || return 1
 }
 
+# isProbe <family name> <scheme>
+# True only for CC-2-LS-EX on the perturbed families (CLAUDE.md section 6,
+# S5 decisions): these runs are a non-fatal stability probe. Every other
+# (family, scheme) keeps every hard check
+function isProbe()
+{
+    if [ "$2" != CC-2-LS-EX ]
+    then
+        return 1
+    fi
+    case "$1" in
+    leftPerturbed | leftPerturbedSeed*) return 0 ;;
+    esac
+    return 1
+}
+
+# probeSelfCheck: the relaxed checks must apply to exactly the 3 perturbed
+# families with CC-2-LS-EX, and to nothing else
+function probeSelfCheck()
+{
+    local family scheme
+    local probes=""
+    for family in leftStructured leftPerturbed rightStructured \
+        $(for seed in $extraSeeds; do echo "leftPerturbedSeed$seed"; done)
+    do
+        for scheme in $allSchemes
+        do
+            if isProbe "$family" "$scheme"
+            then
+                probes="$probes $family/$scheme"
+            fi
+        done
+    done
+    local expected=" leftPerturbed/CC-2-LS-EX"
+    for seed in $extraSeeds
+    do
+        expected="$expected leftPerturbedSeed$seed/CC-2-LS-EX"
+    done
+    if [ "$probes" != "$expected" ]
+    then
+        fail "probe self-check: the relaxed checks would apply to" \
+            "'$probes', not only to '$expected'"
+    fi
+}
+
+# fieldValues <field file>: the internal field values, one per line (a
+# vector field gives "x y z")
+function fieldValues()
+{
+    awk '
+        /^internalField/ { state = 1; next }
+        state == 1 && /^[0-9]+$/ { size = $1; state = 2; next }
+        state == 2 && /^\($/ { state = 3; next }
+        state == 3 && n < size {
+            line = $0
+            gsub(/[()]/, "", line)
+            print line
+            n++
+        }
+    ' "$1"
+}
+
+# probeLocation <N> <values file>: from lines "x t value", print the
+# value of the largest |value|, its cell centre (x, t) and its region:
+# within 2h (h = 1/N) of both tEnd and xRight "corner", of tEnd only
+# "tEndStrip", of xRight only "xRightStrip", of tStart or xLeft "inflowStrip"
+# (the inflow patches), else "interior"
+function probeLocation()
+{
+    awk -v N="$1" '
+        {
+            a = ($3 < 0) ? -$3 : $3
+            if (NR == 1 || a > m) { m = a; x = $1; t = $2 }
+        }
+        END {
+            h = 1.0/N
+            nearT = (t > 1 - 2*h); nearX = (x > 1 - 2*h)
+            if (nearT && nearX) { region = "corner" }
+            else if (nearT) { region = "tEndStrip" }
+            else if (nearX) { region = "xRightStrip" }
+            else if (t < 2*h || x < 2*h) { region = "inflowStrip" }
+            else { region = "interior" }
+            printf "%.4e %.4f %.4f %s\n", m, x, t, region
+        }
+    ' "$2"
+}
+
+# runProbe <family name> <N> <scheme>
+# CC-2-LS-EX on a perturbed family: run with the iteration cap endTime
+# (system/controlDict, as for every run) and a wall-time limit of
+# probeTimeLimit seconds, writing every 100 iterations (the last two
+# written times are kept). Not a hard failure if it does not converge.
+# Records run/rows/<family>/probe_<scheme>_N<N>.row:
+#   N outcome iterations finalResidual wallTime maxAbsU lastTime
+#   maxErr maxErrX maxErrT maxErrRegion maxDu maxDuX maxDuT maxDuRegion
+#   fallbackFaces meshChecksum elapsed commit dirty date
+# with err = u - u_exact at the last written time and du the change of u
+# between the last two written times
+function runProbe()
+{
+    local family="$1"
+    local N="$2"
+    local scheme="$3"
+    local row="run/rows/$family/probe_${scheme}_N$N.row"
+    local meshDir="run/meshes/${family}_N$N"
+    local caseDir="run/cases/${family}_N$N/$scheme"
+    local meshChecksum caseChecksum pid status start now elapsed killed
+    local info outcome nIter residual wallTime times lastTime prevTime
+    local fallback expectedFallback maxAbsU errLocation duLocation
+
+    # Self-guard: never relax the checks of any other run
+    isProbe "$family" "$scheme" \
+        || fail "runProbe called for $scheme on $family"
+
+    if [ -f "$row" ] && [ "$force" = false ]
+    then
+        echo "    $scheme (probe): recorded in $row (skipped; -force reruns" \
+            "it)"
+        return 0
+    fi
+
+    makeMesh "$family" "$N"
+    meshChecksum=$(awk '{print $2}' "run/rows/$family/mesh_N$N.row")
+
+    rm -rf "$caseDir"
+    mkdir -p "$caseDir"
+    cp -r 0 constant system "$caseDir"/
+    cp -r "$meshDir"/constant/polyMesh "$caseDir"/constant/
+
+    echo "    $scheme (stability probe, not a result)"
+    (
+        cd "$caseDir" || exit 1
+        configureCase "$scheme" > log.Allrun 2>&1 || exit 1
+        foamDictionary system/controlDict -entry writeInterval -set 100 \
+            > /dev/null 2>&1 || exit 1
+        foamDictionary system/controlDict -entry purgeWrite -set 2 \
+            > /dev/null 2>&1 || exit 1
+    ) || fail "$scheme on $family N = $N: case set-up (see $caseDir)"
+
+    # The solver runs in the background, watched from here: it is killed
+    # (TERM, then KILL) after probeTimeLimit seconds. wait reaps it, so
+    # nothing is left running
+    start=$(date +%s)
+    killed=0
+    spaceTime4Foam -case "$caseDir" > "$caseDir"/log.spaceTime4Foam 2>&1 &
+    pid=$!
+    while kill -0 "$pid" 2> /dev/null
+    do
+        now=$(date +%s)
+        if [ $((now - start)) -ge "$probeTimeLimit" ]
+        then
+            killed=1
+            kill -TERM "$pid" 2> /dev/null
+            sleep 2
+            kill -KILL "$pid" 2> /dev/null
+            break
+        fi
+        sleep 0.2
+    done
+    wait "$pid"
+    status=$?
+    elapsed=$(($(date +%s) - start))
+
+    info=""
+    if [ -f "$caseDir"/postProcessing/spaceTimeSolverInfo.dat ]
+    then
+        info=$(grep -v '^#' "$caseDir"/postProcessing/spaceTimeSolverInfo.dat \
+            | tail -1)
+    fi
+
+    if [ "$killed" = 1 ]
+    then
+        outcome=timeLimit
+    elif [ "$status" -eq 0 ] && [ "$(echo "$info" | awk '{print $2}')" = 1 ]
+    then
+        outcome=converged
+    elif [ "$status" -eq 1 ] && [ "$(echo "$info" | awk '{print $2}')" = 0 ]
+    then
+        outcome=notConverged
+    elif grep -q "sigFpe" "$caseDir"/log.spaceTime4Foam
+    then
+        outcome=crashedFPE
+    else
+        outcome="failedStatus$status"
+    fi
+
+    if [ -n "$info" ]
+    then
+        nIter=$(echo "$info" | awk '{print $1}')
+        residual=$(echo "$info" | awk '{print $3}')
+        wallTime=$(echo "$info" | awk '{print $4}')
+    else
+        nIter=$(grep -c '^Iteration = ' "$caseDir"/log.spaceTime4Foam)
+        residual=$(grep 'Initial residual' "$caseDir"/log.spaceTime4Foam \
+            | tail -1 | sed 's/.*Initial residual = \([^,]*\),.*/\1/')
+        wallTime="$elapsed"
+    fi
+    [ -n "$residual" ] || residual="-"
+
+    # The checks that stay hard for the probe: fallback faces and mesh
+    fallback=$(awk '/faces use the corner fallback/ {
+            if (!seen[$3]++) { n += $4; found = 1 }
+        }
+        END { if (found) { print n } else { print "-" } }' \
+        "$caseDir"/log.spaceTime4Foam)
+    expectedFallback=$(expectedFallbackFaces "$family")
+    if [ "$fallback" != "$expectedFallback" ]
+    then
+        fail "$scheme on $family N = $N (probe): $fallback corner-fallback" \
+            "faces, expected $expectedFallback (see $caseDir)"
+    fi
+    caseChecksum=$(pointsChecksum "$caseDir"/constant/polyMesh/points)
+    if [ "$caseChecksum" != "$meshChecksum" ]
+    then
+        fail "$scheme on $family N = $N (probe): point-list checksum" \
+            "$caseChecksum differs from the mesh checksum $meshChecksum"
+    fi
+
+    # Where is the error, and where is u changing: the last two written
+    # times
+    times=$(foamListTimes -case "$caseDir" 2> /dev/null)
+    lastTime=$(echo "$times" | tail -1)
+    prevTime=$(echo "$times" | tail -2 | head -1)
+    maxAbsU="-"
+    errLocation="- - - -"
+    duLocation="- - - -"
+    if [ -n "$lastTime" ] && [ -f "$caseDir/$lastTime/u" ]
+    then
+        postProcess -case "$caseDir" -func writeCellCentres \
+            -time "$lastTime" > "$caseDir"/log.writeCellCentres 2>&1 \
+            || fail "writeCellCentres for $scheme on $family N = $N"
+        fieldValues "$caseDir/$lastTime/C" > "$caseDir"/centres
+        fieldValues "$caseDir/$lastTime/u" > "$caseDir"/uLast
+        maxAbsU=$(awk '{ a = ($1 < 0) ? -$1 : $1; if (a > m) m = a }
+            END { printf "%.4e", m }' "$caseDir"/uLast)
+        # travellingSine, a = 1, k = 1: u_exact = sin(2 pi (x - t))
+        paste "$caseDir"/centres "$caseDir"/uLast | awk '
+            BEGIN { pi = atan2(0, -1) }
+            { print $1, $2, $4 - sin(2*pi*($1 - $2)) }' \
+            > "$caseDir"/error
+        errLocation=$(probeLocation "$N" "$caseDir"/error)
+        if [ "$outcome" != converged ] && [ "$prevTime" != "$lastTime" ]
+        then
+            fieldValues "$caseDir/$prevTime/u" > "$caseDir"/uPrev
+            paste "$caseDir"/centres "$caseDir"/uLast "$caseDir"/uPrev \
+                | awk '{ print $1, $2, $4 - $5 }' > "$caseDir"/change
+            duLocation=$(probeLocation "$N" "$caseDir"/change)
+        fi
+    fi
+
+    echo "        outcome $outcome after $nIter iterations, final residual" \
+        "$residual, max|u| $maxAbsU, max|u - u_exact| at (x, t, region)" \
+        "$(echo "$errLocation" | awk '{print $2, $3, $4}')"
+
+    echo "$N $outcome $nIter $residual $wallTime $maxAbsU $lastTime" \
+        "$errLocation $duLocation $fallback $meshChecksum $elapsed" \
+        "$gitCommit $gitDirty $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$row"
+
+    rm -rf "$caseDir"
+}
+
 # runCase <family name> <N> <scheme>
 # Run one case, check it and record its table row in
 # run/rows/<family>/<scheme>_N<N>.row
@@ -404,6 +685,12 @@ function runCase()
     local status elapsed info errors meshChecksum caseChecksum
     local nColumns expectedColumns expectedUnknowns method converged
     local nominalOk fallback expectedFallback primary
+
+    if isProbe "$family" "$scheme"
+    then
+        runProbe "$family" "$N" "$scheme"
+        return
+    fi
 
     if [ -f "$row" ] && [ "$force" = false ]
     then
@@ -458,7 +745,7 @@ function runCase()
             || fail "$scheme on $family N = $N: method '$method'"
         ;;
     *)
-        expectedColumns=21
+        expectedColumns=24
         expectedUnknowns=$((2*N*N))
         [ "$method" = cellCentred ] \
             || fail "$scheme on $family N = $N: method '$method'"
@@ -522,8 +809,7 @@ function runCase()
     # The table row (see makeTables for the columns), then the provenance
     # of the record (commit, dirty flag, date)
     case "$scheme" in
-    *-EX) primary=extrapolated ;;
-    CC-*) primary=cell ;;
+    CC-*) primary=written ;;
     *) primary=nodal ;;
     esac
     echo "$N $primary $info $fallback $meshChecksum $elapsed $errors" \
@@ -543,10 +829,10 @@ function runCase()
         }
         else
         {
-            hNominal = $(o + 21)
+            hNominal = $(o + 24)
             tExtrapolated = $(o + 15) " " $(o + 16) " " $(o + 17)
             tCell = $(o + 18) " " $(o + 19) " " $(o + 20)
-            tEnd = ($2 == "extrapolated") ? tExtrapolated : tCell
+            tEnd = $(o + 21) " " $(o + 22) " " $(o + 23)
             maxNodal = "-"
         }
         printf "%s %s %s %s", $1, hNominal, $(o + 2), $(o + 3)
@@ -607,6 +893,8 @@ function intersect()
 
 # The sweep
 
+probeSelfCheck
+
 if requested structured
 then
     # shellcheck disable=SC2086
@@ -639,9 +927,14 @@ then
         for scheme in $allSchemes
         do
             row="run/rows/leftPerturbed/${scheme}_N$N.row"
+            probeRow="run/rows/leftPerturbed/probe_${scheme}_N$N.row"
             if [ -f "$row" ]
             then
                 estimate="$estimate $(awk '{print $30}' "$row")"
+            elif [ -f "$probeRow" ]
+            then
+                # Elapsed time of the probe run (column 18)
+                estimate="$estimate $(awk '{print $18}' "$probeRow")"
             else
                 missing=$((missing + 1))
             fi

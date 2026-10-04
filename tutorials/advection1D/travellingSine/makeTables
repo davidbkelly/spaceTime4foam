@@ -103,9 +103,9 @@ function schemeDescription()
 function primaryDescription()
 {
     case "$1" in
-    *-EX) echo "extrapolated face value u_P + grad(u)_P . (x_f - x_P)" \
-        "(= columns 17-19)" ;;
-    CC-*) echo "cell value u_P, the zeroGradient face value" \
+    *-EX) echo "written tEnd boundary value: the extrapolated value" \
+        "u_P + grad(u)_P . (x_f - x_P), u_P on the corner-fallback face" ;;
+    CC-*) echo "written tEnd boundary value: the zeroGradient value u_P" \
         "(= columns 20-22)" ;;
     VC-*) echo "nodal value on tEnd" ;;
     esac
@@ -120,10 +120,31 @@ function theory()
     esac
 }
 
+# probeRows <family> <scheme>: the stability-probe records (Allrun
+# runProbe), sorted by N, up to maxN
+function probeRows()
+{
+    local f
+    for f in "$rowsDir/$1/probe_$2"_N*.row
+    do
+        [ -f "$f" ] && cat "$f"
+    done | awk -v maxN="$maxN" '$1 <= maxN' | sort -n -k 1,1
+}
+
 # rows <family> <scheme>: the run records, sorted by N, up to maxN
 function rows()
 {
     local f
+
+    # CC-2-LS-EX on the perturbed families is a stability probe only: its
+    # records never enter the result tables (see probeRows)
+    if [ "$2" = CC-2-LS-EX ]
+    then
+        case "$1" in
+        leftPerturbed*) return 0 ;;
+        esac
+    fi
+
     for f in "$rowsDir/$1/$2"_N*.row
     do
         [ -f "$f" ] && cat "$f"
@@ -131,14 +152,17 @@ function rows()
 }
 
 
-# Provenance (of the records up to maxN)
+# Provenance (of the records up to maxN): "elapsed commit dirty date" of
+# every run record (columns 30-33) and probe record (columns 18-21)
 
 allRecords=$(
     for family in $allFamilies
     do
         for scheme in $allSchemes
         do
-            rows "$family" "$scheme"
+            rows "$family" "$scheme" | awk '{print $30, $31, $32, $33}'
+            probeRows "$family" "$scheme" \
+                | awk '{print $18, $19, $20, $21}'
         done
     done
 )
@@ -148,18 +172,18 @@ then
     exit 1
 fi
 
-commits=$(echo "$allRecords" | awk '{print $31}' | sort -u | tr '\n' ' ' \
+commits=$(echo "$allRecords" | awk '{print $2}' | sort -u | tr '\n' ' ' \
     | sed 's/ $//')
 dirty=$(echo "$allRecords" | awk '
-    $32 == "1" { d = 1 } $32 != "0" && $32 != "1" { u = 1 }
+    $3 == "1" { d = 1 } $3 != "0" && $3 != "1" { u = 1 }
     END { print (d ? 1 : (u ? "unknown" : 0)) }')
-firstDate=$(echo "$allRecords" | awk '{print $33}' | sort | head -1)
-lastDate=$(echo "$allRecords" | awk '{print $33}' | sort | tail -1)
+firstDate=$(echo "$allRecords" | awk '{print $4}' | sort | head -1)
+lastDate=$(echo "$allRecords" | awk '{print $4}' | sort | tail -1)
 machine=$(uname -m)
 cpu=$(sysctl -n machdep.cpu.brand_string 2> /dev/null || echo unknown)
 madeDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Wall time: the runs (column 30) and the meshes of the records
+# Wall time: the runs and probes (elapsed) and the meshes of the records
 meshTime=$(
     for family in $allFamilies
     do
@@ -169,7 +193,7 @@ meshTime=$(
         done
     done | awk -v maxN="$maxN" '$1 <= maxN { s += $3 } END { printf "%.1f", s }'
 )
-runTime=$(echo "$allRecords" | awk '{ s += $30 } END { printf "%.1f", s }')
+runTime=$(echo "$allRecords" | awk '{ s += $1 } END { printf "%.1f", s }')
 totalTime=$(awk -v a="$meshTime" -v b="$runTime" \
     'BEGIN { printf "%.1f", a + b }')
 
@@ -281,6 +305,58 @@ do
 done
 
 
+# ccLsExPerturbedProbe.dat
+
+probeData=$(
+    for family in $allFamilies
+    do
+        probeRows "$family" CC-2-LS-EX | awk -v f="$family" '{
+            seed = f
+            sub(/^leftPerturbedSeed/, "", seed)
+            if (seed == "leftPerturbed") { seed = 12345 }
+            printf "%s %s", f, seed
+            for (i = 1; i <= 18; i++) { printf " %s", $i }
+            printf "\n"
+        }'
+    done
+)
+if [ -n "$probeData" ]
+then
+    {
+        header "CC-2-LS-EX stability probe on the perturbed left-diagonal" \
+            "meshes"
+        echo "# CC-2-LS-EX is unstable on perturbed meshes (CLAUDE.md" \
+            "section 6, S5 decisions);"
+        echo "# these runs are a probe, not results. Iteration cap: endTime" \
+            "10000 (as for every run);"
+        echo "# wall-time limit $(awk '/^probeTimeLimit=/' Allrun \
+            | sed 's/probeTimeLimit=//') s per run; fields written every" \
+            "100 iterations."
+        echo "# outcome: converged, notConverged (iteration cap)," \
+            "crashedFPE (floating-point exception) or"
+        echo "# timeLimit. Location columns: the cell with the largest" \
+            "|value| and its centre (x, t);"
+        echo "# region (h = 1/N): corner (t > 1 - 2h and x > 1 - 2h)," \
+            "tEndStrip (t > 1 - 2h),"
+        echo "# xRightStrip (x > 1 - 2h), inflowStrip (t < 2h or x < 2h)," \
+            "else interior."
+        echo "# err = u - sin(2 pi (x - t)) at the last written time;" \
+            "du = change of u between the last"
+        echo "# two written times (- for converged runs)."
+        echo "# Columns:"
+        echo "#  1 family  2 seed  3 N  4 outcome  5 iterations" \
+            "6 final residual  7 wall time [s]"
+        echo "#  8 max|u| at the last written time  9 last written time" \
+            "(iteration)"
+        echo "# 10 max|err| 11 x 12 t 13 region" \
+            " 14 max|du| 15 x 16 t 17 region"
+        echo "# 18 corner-fallback faces  19 mesh point-list SHA-1" \
+            "20 elapsed [s] (measured by Allrun)"
+        echo "$probeData"
+    } > "$resultsDir"/ccLsExPerturbedProbe.dat
+fi
+
+
 # summary.dat
 
 {
@@ -289,8 +365,12 @@ done
     echo "# Part 1: observed orders of the finest pair of meshes"
     echo "# (p = log(e_c/e_f)/log(h_c/h_f), h = 1/N), next to the" \
         "theoretical order"
-    echo "# T = primary t = T value (cell value for CC-1, CC-2 and CC-2-LS;"
-    echo "# extrapolated face value for the EX schemes; nodal value for VCFV)"
+    echo "# T = primary t = T value: the written tEnd boundary value for CCFV"
+    echo "# (u_P for CC-1, CC-2 and CC-2-LS; the extrapolated value for the EX"
+    echo "# schemes, u_P on the corner-fallback face); the nodal value for VCFV"
+    echo "# CC-2-LS-EX on the perturbed families is unstable and is reported"
+    echo "# only in ccLsExPerturbedProbe.dat (no result rows, orders or"
+    echo "# matched-unknown errors)."
     echo "# family scheme theory N_coarse N_fine p_L1_all p_L2_all" \
         "p_Linf_all p_L1_int p_L2_int p_Linf_int p_L1_bnd p_L2_bnd" \
         "p_Linf_bnd p_L1_T p_L2_T p_Linf_T"
@@ -382,6 +462,8 @@ then
         echo "# relSpread = (max - min)/mean. Part 1: errors (table columns"
         echo "# 5-16); part 2: observed orders of the finest pair."
         echo "# T = primary t = T value"
+        echo "# CC-2-LS-EX on perturbed meshes is unstable: it is reported only"
+        echo "# in ccLsExPerturbedProbe.dat, not here."
         echo "#"
         echo "# Part 1"
         echo "# scheme N quantity min max mean relSpread"
@@ -481,7 +563,8 @@ fi
     echo "tablesMade $madeDate"
     echo "maxN $maxN"
     echo "# Wall time [s], serial: meshes (Allmesh) and runs (spaceTime4Foam"
-    echo "# and spaceTimeErrors, as measured by Allrun), per family"
+    echo "# and spaceTimeErrors, as measured by Allrun, including the"
+    echo "# CC-2-LS-EX stability probes), per family"
     echo "# family nMeshes meshTime nRuns runTime total"
     for family in $allFamilies
     do
@@ -489,11 +572,13 @@ fi
         familyRunTime=0
         for scheme in $allSchemes
         do
-            data=$(rows "$family" "$scheme")
+            # Elapsed time: column 30 of a run record, 18 of a probe record
+            data=$(rows "$family" "$scheme" | awk '{print $30}';
+                probeRows "$family" "$scheme" | awk '{print $18}')
             [ -n "$data" ] || continue
             nRuns=$((nRuns + $(echo "$data" | wc -l)))
             familyRunTime=$(echo "$data" | awk -v t="$familyRunTime" \
-                '{ t += $30 } END { printf "%.1f", t }')
+                '{ t += $1 } END { printf "%.1f", t }')
         done
         [ "$nRuns" -gt 0 ] || continue
         for f in "$rowsDir/$family"/mesh_N*.row
