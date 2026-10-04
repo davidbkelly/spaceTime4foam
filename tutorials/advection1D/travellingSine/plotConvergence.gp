@@ -278,9 +278,9 @@ if (strlen(listS) > 0 && strlen(listP) > 0) {
     set ylabel "observed order p of the interior L2 error"
     set arrow 1 from graph 0, first 2 to graph 1, first 2 nohead ls 100
     set arrow 2 from graph 0, first 3 to graph 1, first 3 nohead ls 100
-    set label 1 "order 2" at graph 0.02, first 2 offset 0, 0.6 \
+    set label 1 "order 2" at graph 0.12, first 2 offset 0, -0.7 \
         textcolor rgb refColour
-    set label 2 "order 3" at graph 0.02, first 3 offset 0, 0.6 \
+    set label 2 "order 3" at graph 0.12, first 3 offset 0, 0.6 \
         textcolor rgb refColour
     plot for [s in listS] ordersTable(s + 0, "leftStructured") \
             using colOrdersNFine:colOrdersL2Int with linespoints \
