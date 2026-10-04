@@ -8,27 +8,716 @@
 #     Allrun
 #
 # Description
-#     STUB: the full refinement sweep (all four schemes on the structured and
-#     perturbed meshes) is added in stage S5. For now it runs the case as
-#     set up (CCFV, CC-2) end to end on one mesh: create the mesh, solve with
-#     spaceTime4Foam and compute the errors with spaceTimeErrors
-#     (postProcessing/spaceTimeErrors/errors.dat).
+#     Step-one benchmark sweep (CLAUDE.md section 6, stage S5): linear
+#     advection, travellingSine with a = 1, k = 1 and the convergence
+#     tolerance of constant/spaceTimeProperties (1e-10), for the schemes
+#       CC-1        cellCentred, div(phiST,u) Gauss upwind
+#       CC-2        cellCentred, Gauss linearUpwind grad(u), Gauss linear
+#       CC-2-LS     as CC-2 with grad(u) leastSquares
+#       CC-2-EX     as CC-2 with spaceTimeLinearExtrapolation on tEnd and
+#                   xRight (cornerFallback on, the default)
+#       CC-2-LS-EX  as CC-2-EX with grad(u) leastSquares
+#       VC-1        vertexCentred, reconstruction none
+#       VC-2        vertexCentred, reconstruction linear
+#     (vertexCentred: weak boundary treatment, CFL 0.5, zero initialisation)
+#     on the mesh families
+#       structured  Allmesh N left                    N = 8 ... 256
+#       perturbed   Allmesh N left perturbed 12345    N = 8 ... 256
+#       seeds       Allmesh N left perturbed 7 and 3  N = 8 ... 128
+#                   (with the perturbed family: the seed study)
+#       aligned     Allmesh N right                   N = 8 ... 64
+#                   (characteristic-alignment illustration only, not a
+#                   main result)
 #
-#     Usage: ./Allrun [N] [left|right] [perturbed [seed]]
-#            (default N = 8, left diagonals, not perturbed; see Allmesh)
+#     One mesh is made per (family, N, seed) and shared by all schemes; the
+#     SHA-1 checksum of its point list is recorded in every table row.
+#     Runs are strictly serial, so that the wall times are clean.
+#
+#     Seed study: unless -seedSchemes is given, the extra wall time of the
+#     two extra seeds with all 7 schemes is estimated as twice the measured
+#     time (mesh and runs) of the perturbed family for N = 8 ... 128. If
+#     the estimate is below 1800 s, all 7 schemes are run, otherwise only
+#     CC-2, CC-2-EX and VC-2. The estimate and the choice are recorded in
+#     seeds.dat.
+#
+#     Hard checks (the script stops with a non-zero status and a message,
+#     keeping the run directory of the failed case):
+#       - spaceTime4Foam and spaceTimeErrors exit with status 0 and the run
+#         converged (converged = 1 in spaceTimeSolverInfo.dat);
+#       - errors.dat has 21 (cellCentred) or 19 (vertexCentred) columns and
+#         its nominal h column is a number equal to 1/N;
+#       - nUnknowns = 2 N^2 (cellCentred) or (N + 1)^2 (vertexCentred,
+#         weak closure);
+#       - EX runs: the number of corner-fallback faces in the solver log is
+#         2 on the left-diagonal families and 0 on the right-diagonal
+#         family, which has no cell with two outflow faces;
+#       - the point-list checksum of every case equals that of its mesh.
+#
+#     Restartable: every finished run leaves a one-line record in
+#     run/rows/, and is not repeated unless -force is given. The case
+#     directories are removed after a successful run; ./Allclean removes
+#     run/ (but not results/).
+#
+#     Output: the tables (.dat), manifest.dat and figures/*.png in the
+#     results directory, made by ./makeTables and plotConvergence.gp from
+#     the records in run/rows/. A full sweep (no -maxN, -family or -schemes
+#     option) writes to results/, any other to run/results/ unless
+#     -results is given, so a partial rerun does not overwrite the
+#     committed results.
+#
+#     Usage: ./Allrun [OPTIONS]
+#       -maxN <N>             largest N: 8, 16, 32, 64, 128 or 256 (default
+#                             256; the seed study stops at 128 and the
+#                             aligned family at 64)
+#       -family <name>        structured, perturbed, seeds or aligned; may
+#                             be repeated (default: all four)
+#       -schemes <list>       comma-separated subset of the schemes above
+#                             (default: all 7)
+#       -seedSchemes <choice> auto (default), all or reduced
+#       -results <dir>        results directory
+#       -force                rerun cases that already have a record
+#       -help                 print this usage
 #
 #------------------------------------------------------------------------------
 cd "${0%/*}" || exit  # Run from this directory
 
-# Source tutorial run functions
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
 . "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
 
-./Allmesh "$@" || exit 1
+allSchemes="CC-1 CC-2 CC-2-LS CC-2-EX CC-2-LS-EX VC-1 VC-2"
+reducedSeedSchemes="CC-2 CC-2-EX VC-2"
+allFamilies="structured perturbed seeds aligned"
+mainSeed=12345
+extraSeeds="7 3"
+seedMaxN=128
+alignedMaxN=64
+seedTimeLimit=1800
 
-runApplication "$(getApplication)" || exit 1
+# The time keyword prints the elapsed (real) time in seconds only
+TIMEFORMAT=%R
 
-# Nominal h = 1/N of the N x N mesh (default N = 8, as in Allmesh)
-nominalH=$(awk -v N="${1:-8}" 'BEGIN { printf "%.17g", 1/N }')
-runApplication spaceTimeErrors -nominalH "$nominalH" || exit 1
+function usage()
+{
+    sed -n '/^#     Usage:/,/^#----/p' "$0" | sed '$d' | sed 's/^#     //'
+    exit "${1:-0}"
+}
+
+
+# Options
+
+maxN=256
+families=""
+schemes="$allSchemes"
+seedSchemesOption=auto
+resultsDir=""
+force=false
+partial=false
+
+while [ "$#" -gt 0 ]
+do
+    case "$1" in
+    -h | -help)
+        usage 0
+        ;;
+    -maxN)
+        [ "$#" -ge 2 ] || usage 1
+        maxN="$2"
+        partial=true
+        shift
+        ;;
+    -family)
+        [ "$#" -ge 2 ] || usage 1
+        case " $allFamilies " in
+        *" $2 "*) ;;
+        *) echo "Unknown family '$2' (one of: $allFamilies)"; exit 1 ;;
+        esac
+        families="$families $2"
+        partial=true
+        shift
+        ;;
+    -schemes)
+        [ "$#" -ge 2 ] || usage 1
+        schemes=$(echo "$2" | tr ',' ' ')
+        for scheme in $schemes
+        do
+            case " $allSchemes " in
+            *" $scheme "*) ;;
+            *) echo "Unknown scheme '$scheme' (one of: $allSchemes)"; exit 1 ;;
+            esac
+        done
+        partial=true
+        shift
+        ;;
+    -seedSchemes)
+        [ "$#" -ge 2 ] || usage 1
+        case "$2" in
+        auto | all | reduced) seedSchemesOption="$2" ;;
+        *) echo "-seedSchemes must be auto, all or reduced"; exit 1 ;;
+        esac
+        shift
+        ;;
+    -results)
+        [ "$#" -ge 2 ] || usage 1
+        resultsDir="$2"
+        shift
+        ;;
+    -force)
+        force=true
+        ;;
+    *)
+        echo "Unknown option '$1'"
+        usage 1
+        ;;
+    esac
+    shift
+done
+
+case "$maxN" in
+8 | 16 | 32 | 64 | 128 | 256) ;;
+*) echo "-maxN must be 8, 16, 32, 64, 128 or 256"; exit 1 ;;
+esac
+
+[ -n "$families" ] || families="$allFamilies"
+
+if [ -z "$resultsDir" ]
+then
+    if [ "$partial" = true ]
+    then
+        resultsDir=run/results
+    else
+        resultsDir=results
+    fi
+fi
+
+for app in gmsh gnuplot gmshToFoam spaceTime4Foam spaceTimeErrors \
+    perturbSpaceTimeMesh
+do
+    if ! command -v "$app" > /dev/null 2>&1
+    then
+        echo "$app not found (run ./Allwmake in the repository root, and"
+        echo "install gmsh and gnuplot)"
+        exit 1
+    fi
+done
+
+
+# Provenance of the records made by this invocation
+
+repoDir=$(cd ../../.. && pwd)
+gitCommit=unknown
+gitDirty=unknown
+if git -C "$repoDir" rev-parse HEAD > /dev/null 2>&1
+then
+    gitCommit=$(git -C "$repoDir" rev-parse HEAD)
+    # Changes outside the results of this sweep make the tree dirty
+    if [ -z "$(git -C "$repoDir" status --porcelain -- . \
+        ':(exclude)tutorials/advection1D/travellingSine/results')" ]
+    then
+        gitDirty=0
+    else
+        gitDirty=1
+        echo "Note: the working tree has uncommitted changes (dirty = 1)"
+    fi
+fi
+
+mkdir -p run/rows run/meshes run/cases
+
+
+# Helper functions
+
+# meshSizes <largest N>: 8 16 ... up to the largest N
+function meshSizes()
+{
+    local N=8
+    local sizes=""
+    while [ "$N" -le "$1" ]
+    do
+        sizes="$sizes $N"
+        N=$((2*N))
+    done
+    echo "$sizes"
+}
+
+# minN <a> <b>
+function minN()
+{
+    if [ "$1" -lt "$2" ]
+    then
+        echo "$1"
+    else
+        echo "$2"
+    fi
+}
+
+# fail <message>: hard failure
+function fail()
+{
+    echo
+    echo "FAILED: $*"
+    exit 1
+}
+
+# pointsChecksum <points file>
+# SHA-1 checksum of the point list only (as in tests/perturbSpaceTimeMesh):
+# the list size and the "(x y z)" lines, exactly as written
+function pointsChecksum()
+{
+    awk '
+        state == 0 && /^[0-9]+$/ { size = $1; state = 1; print; next }
+        state == 1 && /^\($/ { state = 2; next }
+        state == 2 && n < size { print; n++ }
+    ' "$1" | shasum | awk '{print $1}'
+}
+
+# familyMeshArguments <family name> <N>: the Allmesh arguments
+function familyMeshArguments()
+{
+    case "$1" in
+    leftStructured) echo "$2 left" ;;
+    leftPerturbed) echo "$2 left perturbed $mainSeed" ;;
+    leftPerturbedSeed*) echo "$2 left perturbed ${1#leftPerturbedSeed}" ;;
+    rightStructured) echo "$2 right" ;;
+    *) fail "unknown family $1" ;;
+    esac
+}
+
+# expectedFallbackFaces <family name>
+function expectedFallbackFaces()
+{
+    case "$1" in
+    right*) echo 0 ;;
+    *) echo 2 ;;
+    esac
+}
+
+# makeMesh <family name> <N>
+# Make the mesh once (run/meshes/<family>_N<N>) and record its checksum
+# and the meshing wall time in run/rows/<family>/mesh_N<N>.row
+function makeMesh()
+{
+    local family="$1"
+    local N="$2"
+    local meshDir="run/meshes/${family}_N$N"
+    local meshRow="run/rows/$family/mesh_N$N.row"
+    local elapsed checksum
+
+    if [ -f "$meshDir/constant/polyMesh/points" ]
+    then
+        return 0
+    fi
+
+    echo "Meshing $family N = $N"
+    rm -rf "$meshDir"
+    mkdir -p "$meshDir" "run/rows/$family"
+    cp -r gmsh system Allmesh "$meshDir"/
+
+    # shellcheck disable=SC2046
+    { time "$meshDir"/Allmesh $(familyMeshArguments "$family" "$N") \
+        > "$meshDir"/log.Allmesh 2>&1 ; } 2> "$meshDir"/elapsed \
+        || fail "Allmesh for $family N = $N (see $meshDir/log.Allmesh)"
+    elapsed=$(tail -1 "$meshDir"/elapsed)
+    checksum=$(pointsChecksum "$meshDir"/constant/polyMesh/points)
+
+    # A mesh made again (after its directory was removed) must be the same
+    if [ -f "$meshRow" ] && [ "$force" = false ]
+    then
+        if [ "$(awk '{print $2}' "$meshRow")" != "$checksum" ]
+        then
+            fail "$family N = $N: the new mesh checksum $checksum differs" \
+                "from the recorded one in $meshRow"
+        fi
+    else
+        echo "$N $checksum $elapsed" > "$meshRow"
+    fi
+}
+
+# configureCase <scheme>: set the scheme in the case of the current
+# directory
+function configureCase()
+{
+    local props=constant/spaceTimeProperties
+    local div grad outflow reconstruction
+
+    case "$1" in
+    VC-*)
+        reconstruction=linear
+        [ "$1" = VC-1 ] && reconstruction=none
+        foamDictionary "$props" -entry spaceTimeModel \
+            -set vertexCentred > /dev/null || return 1
+        foamDictionary "$props" -entry vertexCentredCoeffs/reconstruction \
+            -set "$reconstruction" > /dev/null || return 1
+        foamDictionary "$props" \
+            -entry vertexCentredCoeffs/boundaryTreatment \
+            -set weak > /dev/null || return 1
+        foamDictionary "$props" -entry vertexCentredCoeffs/initialisation \
+            -set zero > /dev/null || return 1
+        ;;
+    CC-*)
+        div="Gauss linearUpwind grad(u)"
+        [ "$1" = CC-1 ] && div="Gauss upwind"
+        grad="Gauss linear"
+        case "$1" in
+        CC-2-LS | CC-2-LS-EX) grad="leastSquares" ;;
+        esac
+        outflow=zeroGradient
+        case "$1" in
+        *-EX) outflow=spaceTimeLinearExtrapolation ;;
+        esac
+        foamDictionary "$props" -entry spaceTimeModel \
+            -set cellCentred > /dev/null || return 1
+        foamDictionary system/fvSchemes -entry "divSchemes/div(phiST,u)" \
+            -set "$div" > /dev/null || return 1
+        foamDictionary system/fvSchemes -entry "gradSchemes/grad(u)" \
+            -set "$grad" > /dev/null || return 1
+        for patch in tEnd xRight
+        do
+            foamDictionary 0/u -entry "boundaryField/$patch/type" \
+                -set "$outflow" > /dev/null || return 1
+        done
+        ;;
+    esac
+}
+
+# solveCase <scheme> <N>: configure, solve and compute the errors in the
+# case of the current directory
+function solveCase()
+{
+    local nominalH
+    nominalH=$(awk -v N="$2" 'BEGIN { printf "%.17g", 1/N }')
+
+    configureCase "$1" || return 1
+    runApplication spaceTime4Foam || return 1
+    runApplication spaceTimeErrors -nominalH "$nominalH" || return 1
+}
+
+# runCase <family name> <N> <scheme>
+# Run one case, check it and record its table row in
+# run/rows/<family>/<scheme>_N<N>.row
+function runCase()
+{
+    local family="$1"
+    local N="$2"
+    local scheme="$3"
+    local row="run/rows/$family/${scheme}_N$N.row"
+    local meshDir="run/meshes/${family}_N$N"
+    local caseDir="run/cases/${family}_N$N/$scheme"
+    local status elapsed info errors meshChecksum caseChecksum
+    local nColumns expectedColumns expectedUnknowns method converged
+    local nominalOk fallback expectedFallback primary
+
+    if [ -f "$row" ] && [ "$force" = false ]
+    then
+        echo "    $scheme: recorded in $row (skipped; -force reruns it)"
+        return 0
+    fi
+
+    makeMesh "$family" "$N"
+    meshChecksum=$(awk '{print $2}' "run/rows/$family/mesh_N$N.row")
+
+    rm -rf "$caseDir"
+    mkdir -p "$caseDir"
+    cp -r 0 constant system "$caseDir"/
+    cp -r "$meshDir"/constant/polyMesh "$caseDir"/constant/
+
+    echo "    $scheme"
+    (
+        cd "$caseDir" || exit 1
+        { time solveCase "$scheme" "$N" > log.Allrun 2>&1 ; } 2> elapsed
+    )
+    status=$?
+    elapsed=$(tail -1 "$caseDir"/elapsed)
+
+    info=""
+    if [ -f "$caseDir"/postProcessing/spaceTimeSolverInfo.dat ]
+    then
+        info=$(grep -v '^#' "$caseDir"/postProcessing/spaceTimeSolverInfo.dat \
+            | tail -1)
+    fi
+    errors=""
+    if [ -f "$caseDir"/postProcessing/spaceTimeErrors/errors.dat ]
+    then
+        errors=$(grep -v '^#' \
+            "$caseDir"/postProcessing/spaceTimeErrors/errors.dat | tail -1)
+    fi
+
+    # Hard checks
+    converged=$(echo "$info" | awk '{print $2}')
+    if [ "$status" -ne 0 ] || [ "$converged" != "1" ]
+    then
+        fail "$scheme on $family N = $N: exit status $status, converged" \
+            "'$converged' (see $caseDir)"
+    fi
+
+    method=$(echo "$errors" | awk '{print $1}')
+    nColumns=$(echo "$errors" | awk '{print NF}')
+    case "$scheme" in
+    VC-*)
+        expectedColumns=19
+        expectedUnknowns=$(((N + 1)*(N + 1)))
+        [ "$method" = vertexCentred ] \
+            || fail "$scheme on $family N = $N: method '$method'"
+        ;;
+    *)
+        expectedColumns=21
+        expectedUnknowns=$((2*N*N))
+        [ "$method" = cellCentred ] \
+            || fail "$scheme on $family N = $N: method '$method'"
+        ;;
+    esac
+    if [ "$nColumns" != "$expectedColumns" ]
+    then
+        fail "$scheme on $family N = $N: $nColumns columns in errors.dat," \
+            "expected $expectedColumns (see $caseDir)"
+    fi
+
+    nominalOk=$(echo "$errors" | awk -v N="$N" '{
+        h = $NF
+        ok = (h ~ /^[0-9.eE+-]+$/) && (h + 0 > 0)
+        d = h - 1/N; if (d < 0) { d = -d }
+        print ((ok && d <= 1e-15) ? 1 : 0)
+    }')
+    if [ "$nominalOk" != "1" ]
+    then
+        fail "$scheme on $family N = $N: nominal h column" \
+            "'$(echo "$errors" | awk '{print $NF}')' is not 1/N"
+    fi
+
+    if [ "$(echo "$errors" | awk '{print $3}')" != "$expectedUnknowns" ]
+    then
+        fail "$scheme on $family N = $N: nUnknowns" \
+            "$(echo "$errors" | awk '{print $3}'), expected $expectedUnknowns"
+    fi
+
+    # Corner-fallback faces: the first report of each patch in the log
+    fallback=$(awk '/faces use the corner fallback/ {
+            if (!seen[$3]++) { n += $4; found = 1 }
+        }
+        END { if (found) { print n } else { print "-" } }' \
+        "$caseDir"/log.spaceTime4Foam)
+    case "$scheme" in
+    *-EX)
+        expectedFallback=$(expectedFallbackFaces "$family")
+        if [ "$fallback" != "$expectedFallback" ]
+        then
+            fail "$scheme on $family N = $N: $fallback corner-fallback" \
+                "faces, expected $expectedFallback (see $caseDir)"
+        fi
+        ;;
+    *)
+        if [ "$fallback" != "-" ]
+        then
+            fail "$scheme on $family N = $N: corner-fallback report in a" \
+                "run without spaceTimeLinearExtrapolation"
+        fi
+        ;;
+    esac
+
+    caseChecksum=$(pointsChecksum "$caseDir"/constant/polyMesh/points)
+    if [ "$caseChecksum" != "$meshChecksum" ]
+    then
+        fail "$scheme on $family N = $N: point-list checksum $caseChecksum" \
+            "differs from the mesh checksum $meshChecksum"
+    fi
+
+    # The table row (see makeTables for the columns), then the provenance
+    # of the record (commit, dirty flag, date)
+    case "$scheme" in
+    *-EX) primary=extrapolated ;;
+    CC-*) primary=cell ;;
+    *) primary=nodal ;;
+    esac
+    echo "$N $primary $info $fallback $meshChecksum $elapsed $errors" \
+        | awk -v commit="$gitCommit" -v dirty="$gitDirty" \
+            -v date="$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
+        # $1 N, $2 primary, $3-$6 info (nIter converged residual wallTime),
+        # $7 fallback, $8 checksum, $9 elapsed, $10- errors.dat
+        o = 9
+        method = $(o + 1)
+        if (method == "vertexCentred")
+        {
+            hNominal = $(o + 19)
+            tEnd = $(o + 15) " " $(o + 16) " " $(o + 17)
+            tExtrapolated = "- - -"
+            tCell = "- - -"
+            maxNodal = $(o + 8)
+        }
+        else
+        {
+            hNominal = $(o + 21)
+            tExtrapolated = $(o + 15) " " $(o + 16) " " $(o + 17)
+            tCell = $(o + 18) " " $(o + 19) " " $(o + 20)
+            tEnd = ($2 == "extrapolated") ? tExtrapolated : tCell
+            maxNodal = "-"
+        }
+        printf "%s %s %s %s", $1, hNominal, $(o + 2), $(o + 3)
+        for (i = 6; i <= 14; i++) { printf " %s", $(o + i) }
+        printf " %s %s %s %s", tEnd, tExtrapolated, tCell, maxNodal
+        printf " %s %s %s %s %s %s %s", $3, $4, $5, $6, $7, $8, $9
+        printf " %s %s %s\n", commit, dirty, date
+    }' > "$row"
+
+    rm -rf "$caseDir"
+}
+
+# runFamily <family name> <largest N> <schemes...>
+function runFamily()
+{
+    local family="$1"
+    local familyMaxN="$2"
+    shift 2
+    local N scheme
+
+    echo
+    echo "Family $family (Allmesh $(familyMeshArguments "$family" N))"
+    for N in $(meshSizes "$familyMaxN")
+    do
+        echo "  N = $N"
+        for scheme in "$@"
+        do
+            runCase "$family" "$N" "$scheme"
+        done
+        # The mesh is no longer needed (its checksum is recorded)
+        rm -rf "run/meshes/${family}_N$N" "run/cases/${family}_N$N"
+    done
+}
+
+# requested <family>: true if the family was requested
+function requested()
+{
+    case " $families " in
+    *" $1 "*) return 0 ;;
+    esac
+    return 1
+}
+
+# intersect <list a> <list b>: the words of a that are in b, in a's order
+function intersect()
+{
+    local word
+    local result=""
+    for word in $1
+    do
+        case " $2 " in
+        *" $word "*) result="$result $word" ;;
+        esac
+    done
+    echo "$result"
+}
+
+
+# The sweep
+
+if requested structured
+then
+    # shellcheck disable=SC2086
+    runFamily leftStructured "$maxN" $schemes
+fi
+
+if requested perturbed
+then
+    # shellcheck disable=SC2086
+    runFamily leftPerturbed "$maxN" $schemes
+fi
+
+if requested seeds
+then
+    seedN=$(minN "$maxN" "$seedMaxN")
+
+    # Estimate of the extra wall time of the seed study with all 7 schemes:
+    # twice the measured time of the perturbed family up to seedN
+    estimate=""
+    missing=0
+    for N in $(meshSizes "$seedN")
+    do
+        meshRow="run/rows/leftPerturbed/mesh_N$N.row"
+        if [ -f "$meshRow" ]
+        then
+            estimate="$estimate $(awk '{print $3}' "$meshRow")"
+        else
+            missing=$((missing + 1))
+        fi
+        for scheme in $allSchemes
+        do
+            row="run/rows/leftPerturbed/${scheme}_N$N.row"
+            if [ -f "$row" ]
+            then
+                estimate="$estimate $(awk '{print $30}' "$row")"
+            else
+                missing=$((missing + 1))
+            fi
+        done
+    done
+    nExtraSeeds=$(echo "$extraSeeds" | wc -w | tr -d ' ')
+    if [ "$missing" -eq 0 ]
+    then
+        estimate=$(echo "$estimate" | awk -v n="$nExtraSeeds" '{
+            for (i = 1; i <= NF; i++) { s += $i }
+            printf "%.1f\n", n*s
+        }')
+    else
+        estimate=unknown
+    fi
+
+    choice="$seedSchemesOption"
+    if [ "$choice" = auto ]
+    then
+        if [ "$estimate" = unknown ]
+        then
+            fail "seed study: $missing perturbed-family records up to" \
+                "N = $seedN are missing, so the time estimate cannot be made" \
+                "(run -family perturbed first, or give -seedSchemes all or" \
+                "reduced)"
+        fi
+        choice=$(awk -v e="$estimate" -v l="$seedTimeLimit" \
+            'BEGIN { print (e < l) ? "all" : "reduced" }')
+    fi
+    if [ "$choice" = all ]
+    then
+        seedSchemes="$allSchemes"
+    else
+        seedSchemes="$reducedSeedSchemes"
+    fi
+
+    echo
+    echo "Seed study: estimated extra wall time with all 7 schemes" \
+        "$estimate s (limit $seedTimeLimit s), option $seedSchemesOption," \
+        "schemes: $seedSchemes"
+    {
+        echo "seeds $mainSeed $extraSeeds"
+        echo "maxN $seedN"
+        echo "estimate $estimate"
+        echo "limit $seedTimeLimit"
+        echo "option $seedSchemesOption"
+        echo "choice $choice"
+        echo "schemes $seedSchemes"
+    } > run/rows/seedStudy
+
+    for seed in $extraSeeds
+    do
+        # shellcheck disable=SC2046
+        runFamily "leftPerturbedSeed$seed" "$seedN" \
+            $(intersect "$seedSchemes" "$schemes")
+    done
+fi
+
+if requested aligned
+then
+    # shellcheck disable=SC2086
+    runFamily rightStructured "$(minN "$maxN" "$alignedMaxN")" $schemes
+fi
+
+
+# Tables and figures from the records
+
+echo
+./makeTables run/rows "$resultsDir" "$maxN" || fail "makeTables"
+
+mkdir -p "$resultsDir"/figures
+gnuplot -e "resultsDir='$resultsDir'" plotConvergence.gp \
+    > run/log.plotConvergence 2>&1 \
+    || fail "plotConvergence.gp (see run/log.plotConvergence)"
+
+echo
+echo "Results in $resultsDir (figures in $resultsDir/figures)"
 
 #------------------------------------------------------------------------------

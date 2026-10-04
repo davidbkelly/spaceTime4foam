@@ -1,0 +1,515 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     makeTables
+#
+# Description
+#     Make the S5 benchmark tables from the run records written by Allrun
+#     (one line per run in <rows>/<family>/<scheme>_N<N>.row, one per mesh
+#     in <rows>/<family>/mesh_N<N>.row, and <rows>/seedStudy):
+#       <scheme>_<family>.dat         one row per N (columns in the header)
+#       orders_<scheme>_<family>.dat  observed orders between successive N,
+#                                     p = log(e_c/e_f)/log(h_c/h_f), h = 1/N
+#       summary.dat                   finest-pair orders against theory, and
+#                                     errors at matched unknown counts
+#       seeds.dat                     seed-study spread
+#       manifest.dat                  provenance and wall times
+#     Records with N above <maxN> are left out. Every file starts with the
+#     same provenance lines.
+#
+#     Usage: ./makeTables <rows directory> <results directory> [maxN]
+#            (directories relative to this tutorial directory)
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+if [ "$#" -lt 2 ]
+then
+    sed -n 's/^#     Usage: /Usage: /p' "$0"
+    exit 1
+fi
+
+rowsDir="$1"
+resultsDir="$2"
+maxN="${3:-256}"
+
+allSchemes="CC-1 CC-2 CC-2-LS CC-2-EX CC-2-LS-EX VC-1 VC-2"
+seedFamilies="leftPerturbed leftPerturbedSeed7 leftPerturbedSeed3"
+allFamilies="leftStructured leftPerturbed rightStructured"
+allFamilies="$allFamilies leftPerturbedSeed7 leftPerturbedSeed3"
+
+# Error counts at which the errors are compared (log-log interpolation)
+matchedCounts="1000 3000 10000 30000 60000"
+
+# Norm names of table columns 5-22
+normNames="L1_all L2_all Linf_all L1_int L2_int Linf_int"
+normNames="$normNames L1_bnd L2_bnd Linf_bnd L1_T L2_T Linf_T"
+normNames="$normNames L1_TExtrap L2_TExtrap Linf_TExtrap"
+normNames="$normNames L1_TCell L2_TCell Linf_TCell"
+
+mkdir -p "$resultsDir" || exit 1
+
+
+# Helper functions
+
+# familyDescription <family>
+function familyDescription()
+{
+    case "$1" in
+    leftStructured)
+        echo "structured right triangles, left diagonals (Allmesh N left)"
+        ;;
+    leftPerturbed)
+        echo "perturbed left-diagonal triangles, seed 12345" \
+            "(Allmesh N left perturbed 12345)"
+        ;;
+    leftPerturbedSeed*)
+        echo "perturbed left-diagonal triangles, seed ${1#leftPerturbedSeed}" \
+            "(Allmesh N left perturbed ${1#leftPerturbedSeed}), seed study"
+        ;;
+    rightStructured)
+        echo "structured right triangles, right diagonals (Allmesh N right):" \
+            "CHARACTERISTIC-ALIGNMENT ILLUSTRATION, not a main result"
+        ;;
+    esac
+}
+
+# schemeDescription <scheme>
+function schemeDescription()
+{
+    case "$1" in
+    CC-1) echo "cellCentred, Gauss upwind, zeroGradient outflow" ;;
+    CC-2) echo "cellCentred, Gauss linearUpwind grad(u), grad(u) Gauss" \
+        "linear, zeroGradient outflow" ;;
+    CC-2-LS) echo "cellCentred, Gauss linearUpwind grad(u), grad(u)" \
+        "leastSquares, zeroGradient outflow" ;;
+    CC-2-EX) echo "cellCentred, Gauss linearUpwind grad(u), grad(u) Gauss" \
+        "linear, spaceTimeLinearExtrapolation outflow (cornerFallback on)" ;;
+    CC-2-LS-EX) echo "cellCentred, Gauss linearUpwind grad(u), grad(u)" \
+        "leastSquares, spaceTimeLinearExtrapolation outflow" \
+        "(cornerFallback on)" ;;
+    VC-1) echo "vertexCentred, reconstruction none, weak closure, CFL 0.5," \
+        "zero initialisation" ;;
+    VC-2) echo "vertexCentred, reconstruction linear, weak closure, CFL" \
+        "0.5, zero initialisation" ;;
+    esac
+}
+
+# primaryDescription <scheme>: the primary t = T value
+function primaryDescription()
+{
+    case "$1" in
+    *-EX) echo "extrapolated face value u_P + grad(u)_P . (x_f - x_P)" \
+        "(= columns 17-19)" ;;
+    CC-*) echo "cell value u_P, the zeroGradient face value" \
+        "(= columns 20-22)" ;;
+    VC-*) echo "nodal value on tEnd" ;;
+    esac
+}
+
+# theory <scheme>: the theoretical order
+function theory()
+{
+    case "$1" in
+    CC-1 | VC-1) echo 1 ;;
+    *) echo 2 ;;
+    esac
+}
+
+# rows <family> <scheme>: the run records, sorted by N, up to maxN
+function rows()
+{
+    local f
+    for f in "$rowsDir/$1/$2"_N*.row
+    do
+        [ -f "$f" ] && cat "$f"
+    done | awk -v maxN="$maxN" '$1 <= maxN' | sort -n -k 1,1
+}
+
+
+# Provenance (of the records up to maxN)
+
+allRecords=$(
+    for family in $allFamilies
+    do
+        for scheme in $allSchemes
+        do
+            rows "$family" "$scheme"
+        done
+    done
+)
+if [ -z "$allRecords" ]
+then
+    echo "makeTables: no run records in $rowsDir"
+    exit 1
+fi
+
+commits=$(echo "$allRecords" | awk '{print $31}' | sort -u | tr '\n' ' ' \
+    | sed 's/ $//')
+dirty=$(echo "$allRecords" | awk '
+    $32 == "1" { d = 1 } $32 != "0" && $32 != "1" { u = 1 }
+    END { print (d ? 1 : (u ? "unknown" : 0)) }')
+firstDate=$(echo "$allRecords" | awk '{print $33}' | sort | head -1)
+lastDate=$(echo "$allRecords" | awk '{print $33}' | sort | tail -1)
+machine=$(uname -m)
+cpu=$(sysctl -n machdep.cpu.brand_string 2> /dev/null || echo unknown)
+madeDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Wall time: the runs (column 30) and the meshes of the records
+meshTime=$(
+    for family in $allFamilies
+    do
+        for f in "$rowsDir/$family"/mesh_N*.row
+        do
+            [ -f "$f" ] && cat "$f"
+        done
+    done | awk -v maxN="$maxN" '$1 <= maxN { s += $3 } END { printf "%.1f", s }'
+)
+runTime=$(echo "$allRecords" | awk '{ s += $30 } END { printf "%.1f", s }')
+totalTime=$(awk -v a="$meshTime" -v b="$runTime" \
+    'BEGIN { printf "%.1f", a + b }')
+
+if [ "$(echo "$commits" | wc -w)" -ne 1 ]
+then
+    echo "makeTables: note: the records come from several commits: $commits"
+fi
+if [ "$dirty" != 0 ]
+then
+    echo "makeTables: note: dirty flag $dirty"
+fi
+
+provenance="\
+# Provenance: spaceTime4foam commit $commits (dirty $dirty)
+# OpenFOAM $WM_PROJECT_VERSION ($WM_OPTIONS), $machine, $cpu
+# Runs made $firstDate to $lastDate, tables made $madeDate
+# Total sweep wall time $totalTime s (meshes and runs, serial); see manifest.dat"
+
+# header <title>: the first lines of every file
+function header()
+{
+    echo "# $1"
+    echo "# travellingSine, a = 1, k = 1, convergence tolerance 1e-10"
+    echo "$provenance"
+}
+
+
+# Tables: <scheme>_<family>.dat and orders_<scheme>_<family>.dat
+
+for family in $allFamilies
+do
+    for scheme in $allSchemes
+    do
+        data=$(rows "$family" "$scheme")
+        [ -n "$data" ] || continue
+
+        table="$resultsDir/${scheme}_$family.dat"
+        {
+            header "$scheme: $(schemeDescription "$scheme")"
+            echo "# Mesh family: $(familyDescription "$family")"
+            echo "# Columns:"
+            echo "#  1     N (N x N squares, 2 N^2 triangles)"
+            echo "#  2     nominal h = 1/N (used for the orders)"
+            echo "#  3     area-based h = sqrt(A_domain/(nTriangles/2))"
+            echo "#  4     nUnknowns (cells: 2 N^2; nodes: (N + 1)^2)"
+            echo "#  5- 7  L1 L2 Linf over all unknowns"
+            echo "#  8-10  L1 L2 Linf over interior unknowns"
+            echo "# 11-13  L1 L2 Linf over boundary unknowns"
+            echo "# 14-16  L1 L2 Linf at t = T, primary value:" \
+                "$(primaryDescription "$scheme")"
+            echo "# 17-19  L1 L2 Linf at t = T, extrapolated face value" \
+                "(CCFV; - for VCFV)"
+            echo "# 20-22  L1 L2 Linf at t = T, cell value (CCFV; - for VCFV)"
+            echo "# 23     maximum nodal error (VCFV; - for CCFV)"
+            echo "# 24     iterations"
+            echo "# 25     converged (1)"
+            echo "# 26     final residual (CCFV: initial residual of the u" \
+                "solve; VCFV: RMS of Res_j/V_j)"
+            echo "# 27     wall time [s] of the solver loop" \
+                "(spaceTimeSolverInfo.dat)"
+            echo "# 28     corner-fallback faces (EX; - otherwise)"
+            echo "# 29     SHA-1 of the mesh point list (same for all schemes)"
+            echo "# 30     elapsed [s] of the run (spaceTime4Foam and" \
+                "spaceTimeErrors, measured by Allrun)"
+            echo "$data" | awk '{
+                for (i = 1; i <= 30; i++)
+                {
+                    printf "%s%s", $i, (i < 30 ? " " : "\n")
+                }
+            }'
+        } > "$table"
+
+        orders="$resultsDir/orders_${scheme}_$family.dat"
+        {
+            header "$scheme: observed orders, $(familyDescription "$family")"
+            echo "# p = log(e_coarse/e_fine)/log(h_coarse/h_fine), h = 1/N;" \
+                "computed from ${scheme}_$family.dat"
+            echo "# - : no such error for this method;" \
+                "nan: an error below 1e-12 (zero to round-off)"
+            echo "# T = primary t = T value, TExtrap/TCell = CCFV" \
+                "extrapolated/cell value"
+            echo "# N_coarse N_fine p_${normNames// / p_}"
+            echo "$data" | awk '{
+                if (NR > 1)
+                {
+                    printf "%s %s", n, $1
+                    for (k = 5; k <= 22; k++)
+                    {
+                        if (e[k] == "-" || $k == "-")
+                        {
+                            printf " -"
+                        }
+                        else if (e[k] < 1e-12 || $k < 1e-12)
+                        {
+                            printf " nan"
+                        }
+                        else
+                        {
+                            printf " %.3f", log(e[k]/$k)/log(h/$2)
+                        }
+                    }
+                    printf "\n"
+                }
+                n = $1; h = $2
+                for (k = 5; k <= 22; k++) { e[k] = $k }
+            }'
+        } > "$orders"
+    done
+done
+
+
+# summary.dat
+
+{
+    header "Summary of the S5 benchmark"
+    echo "#"
+    echo "# Part 1: observed orders of the finest pair of meshes"
+    echo "# (p = log(e_c/e_f)/log(h_c/h_f), h = 1/N), next to the" \
+        "theoretical order"
+    echo "# T = primary t = T value (cell value for CC-1, CC-2 and CC-2-LS;"
+    echo "# extrapolated face value for the EX schemes; nodal value for VCFV)"
+    echo "# family scheme theory N_coarse N_fine p_L1_all p_L2_all" \
+        "p_Linf_all p_L1_int p_L2_int p_Linf_int p_L1_bnd p_L2_bnd" \
+        "p_Linf_bnd p_L1_T p_L2_T p_Linf_T"
+    for family in $allFamilies
+    do
+        for scheme in $allSchemes
+        do
+            orders="$resultsDir/orders_${scheme}_$family.dat"
+            [ -f "$orders" ] || continue
+            grep -v '^#' "$orders" | tail -1 | awk -v f="$family" \
+                -v s="$scheme" -v t="$(theory "$scheme")" '
+                NF > 0 {
+                    printf "%s %s %s %s %s", f, s, t, $1, $2
+                    for (k = 3; k <= 14; k++) { printf " %s", $k }
+                    printf "\n"
+                }'
+        done
+    done
+    echo "#"
+    echo "# Part 2: errors at matched numbers of unknowns n (accuracy per"
+    echo "# unknown). Method: linear interpolation of log(error) against"
+    echo "# log(nUnknowns) between the two meshes of the family that bracket"
+    echo "# n; - if n is outside the range of the family (no extrapolation)."
+    echo "# Norms: L1/L2/Linf over all unknowns, and L2 of the primary t = T"
+    echo "# value."
+    echo "# family scheme norm $(for n in $matchedCounts; do printf ' e(n=%s)' "$n"; done)"
+    for family in $allFamilies
+    do
+        for scheme in $allSchemes
+        do
+            table="$resultsDir/${scheme}_$family.dat"
+            [ -f "$table" ] || continue
+            for norm in L1_all:5 L2_all:6 Linf_all:7 L2_T:15
+            do
+                grep -v '^#' "$table" | awk -v f="$family" -v s="$scheme" \
+                    -v name="${norm%%:*}" -v col="${norm##*:}" \
+                    -v counts="$matchedCounts" '
+                    {
+                        m++; n[m] = $4; e[m] = $col
+                    }
+                    END {
+                        printf "%s %s %s", f, s, name
+                        nc = split(counts, c, " ")
+                        for (j = 1; j <= nc; j++)
+                        {
+                            value = "-"
+                            for (i = 1; i < m; i++)
+                            {
+                                if (n[i] <= c[j] && c[j] <= n[i + 1] \
+                                    && e[i] > 0 && e[i + 1] > 0)
+                                {
+                                    w = log(c[j]/n[i])/log(n[i + 1]/n[i])
+                                    value = sprintf("%.4e", \
+                                        exp((1 - w)*log(e[i]) \
+                                        + w*log(e[i + 1])))
+                                }
+                            }
+                            printf " %s", value
+                        }
+                        printf "\n"
+                    }'
+            done
+        done
+    done
+} > "$resultsDir"/summary.dat
+
+
+# seeds.dat
+
+if [ -f "$rowsDir"/seedStudy ]
+then
+    seeds=$(awk '$1 == "seeds" { $1 = ""; print }' "$rowsDir"/seedStudy)
+    seedMaxN=$(awk '$1 == "maxN" { print $2 }' "$rowsDir"/seedStudy)
+    seedSchemes=$(awk '$1 == "schemes" { $1 = ""; print }' \
+        "$rowsDir"/seedStudy)
+    {
+        header "Seed study: perturbed left-diagonal meshes, N <= $seedMaxN"
+        echo "# Seeds:$seeds (seed 12345 is the leftPerturbed family)"
+        echo "# Estimated extra wall time of the two extra seeds with all 7"
+        echo "# schemes: $(awk '$1 == "estimate" { print $2 }' \
+            "$rowsDir"/seedStudy) s (twice the measured mesh and run time" \
+            "of the leftPerturbed family for N <= $seedMaxN);"
+        echo "# limit $(awk '$1 == "limit" { print $2 }' "$rowsDir"/seedStudy)" \
+            "s; option -seedSchemes" \
+            "$(awk '$1 == "option" { print $2 }' "$rowsDir"/seedStudy);" \
+            "choice: $(awk '$1 == "choice" { print $2 }' \
+            "$rowsDir"/seedStudy) ($seedSchemes )"
+        echo "# Spread over the seeds: min, max, mean and"
+        echo "# relSpread = (max - min)/mean. Part 1: errors (table columns"
+        echo "# 5-16); part 2: observed orders of the finest pair."
+        echo "# T = primary t = T value"
+        echo "#"
+        echo "# Part 1"
+        echo "# scheme N quantity min max mean relSpread"
+        for scheme in $seedSchemes
+        do
+            files=""
+            for family in $seedFamilies
+            do
+                f="$resultsDir/${scheme}_$family.dat"
+                [ -f "$f" ] && files="$files $f"
+            done
+            # shellcheck disable=SC2086
+            awk -v s="$scheme" -v maxN="$seedMaxN" -v names="$normNames" '
+                BEGIN { split(names, name, " ") }
+                /^#/ { next }
+                $1 <= maxN {
+                    if (!($1 in count)) { nList[++nN] = $1 }
+                    count[$1]++
+                    for (k = 5; k <= 16; k++)
+                    {
+                        v = $k + 0
+                        if (count[$1] == 1 || v < lo[$1, k]) { lo[$1, k] = v }
+                        if (count[$1] == 1 || v > hi[$1, k]) { hi[$1, k] = v }
+                        sum[$1, k] += v
+                    }
+                }
+                END {
+                    for (i = 1; i <= nN; i++)
+                    {
+                        N = nList[i]
+                        if (count[N] != 3) { continue }
+                        for (k = 5; k <= 16; k++)
+                        {
+                            mean = sum[N, k]/3
+                            printf "%s %s %s %.4e %.4e %.4e %.3f\n", s, N, \
+                                name[k - 4], lo[N, k], hi[N, k], mean, \
+                                (hi[N, k] - lo[N, k])/mean
+                        }
+                    }
+                }' $files
+        done
+        echo "#"
+        echo "# Part 2"
+        echo "# scheme N_coarse N_fine quantity min max mean"
+        for scheme in $seedSchemes
+        do
+            files=""
+            for family in $seedFamilies
+            do
+                f="$resultsDir/orders_${scheme}_$family.dat"
+                [ -f "$f" ] && files="$files $f"
+            done
+            # shellcheck disable=SC2086
+            awk -v s="$scheme" -v maxN="$seedMaxN" -v names="$normNames" '
+                BEGIN { split(names, name, " ") }
+                /^#/ { next }
+                $2 == maxN {
+                    count++
+                    nc = $1
+                    for (k = 3; k <= 14; k++)
+                    {
+                        v = $k + 0
+                        if (count == 1 || v < lo[k]) { lo[k] = v }
+                        if (count == 1 || v > hi[k]) { hi[k] = v }
+                        sum[k] += v
+                    }
+                }
+                END {
+                    if (count != 3) { exit }
+                    for (k = 3; k <= 14; k++)
+                    {
+                        printf "%s %s %s p_%s %.3f %.3f %.3f\n", s, nc, \
+                            maxN, name[k - 2], lo[k], hi[k], sum[k]/3
+                    }
+                }' $files
+        done
+    } > "$resultsDir"/seeds.dat
+fi
+
+
+# manifest.dat
+
+{
+    header "Manifest of the S5 benchmark results"
+    echo "commit $commits"
+    echo "dirty $dirty"
+    echo "openfoam $WM_PROJECT $WM_PROJECT_VERSION"
+    echo "options $WM_OPTIONS"
+    echo "compiler $WM_COMPILER $(${CXX:-c++} --version 2> /dev/null \
+        | head -1)"
+    echo "gmsh $(gmsh --version 2>&1 | head -1)"
+    echo "gnuplot $(gnuplot --version 2>&1 | head -1)"
+    echo "machine $machine"
+    echo "cpu $cpu"
+    echo "runsFirst $firstDate"
+    echo "runsLast $lastDate"
+    echo "tablesMade $madeDate"
+    echo "maxN $maxN"
+    echo "# Wall time [s], serial: meshes (Allmesh) and runs (spaceTime4Foam"
+    echo "# and spaceTimeErrors, as measured by Allrun), per family"
+    echo "# family nMeshes meshTime nRuns runTime total"
+    for family in $allFamilies
+    do
+        nRuns=0
+        familyRunTime=0
+        for scheme in $allSchemes
+        do
+            data=$(rows "$family" "$scheme")
+            [ -n "$data" ] || continue
+            nRuns=$((nRuns + $(echo "$data" | wc -l)))
+            familyRunTime=$(echo "$data" | awk -v t="$familyRunTime" \
+                '{ t += $30 } END { printf "%.1f", t }')
+        done
+        [ "$nRuns" -gt 0 ] || continue
+        for f in "$rowsDir/$family"/mesh_N*.row
+        do
+            [ -f "$f" ] && cat "$f"
+        done | awk -v f="$family" -v nRuns="$nRuns" -v r="$familyRunTime" \
+            -v maxN="$maxN" '
+            $1 <= maxN { n++; t += $3 }
+            END { printf "wallTime %s %d %.1f %d %.1f %.1f\n", f, n, t, \
+                nRuns, r, t + r }'
+    done
+    echo "wallTimeTotal $totalTime"
+    echo "# Tables (figures/*.png are drawn from them by plotConvergence.gp)"
+    (cd "$resultsDir" && ls ./*.dat) | sed 's|^\./||; s/^/file /'
+} > "$resultsDir"/manifest.dat
+
+echo "Tables written to $resultsDir"
+
+#------------------------------------------------------------------------------
