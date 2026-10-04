@@ -117,4 +117,43 @@ bool Foam::spaceTimeModels::cellCentred::evolve()
 }
 
 
+void Foam::spaceTimeModels::cellCentred::writeFields()
+{
+    // Boundary values after the last solve, before the refresh
+    const volScalarField::Boundary& uBf = u_.boundaryField();
+    List<scalarField> previousValues(uBf.size());
+
+    forAll(uBf, patchi)
+    {
+        previousValues[patchi] = uBf[patchi];
+    }
+
+    // Re-evaluate the boundary conditions from the final u: conditions
+    // whose coefficients depend on u (e.g. spaceTimeLinearExtrapolation,
+    // through grad(u)) update them first
+    u_.correctBoundaryConditions();
+
+    scalar maxChange = 0;
+
+    forAll(uBf, patchi)
+    {
+        if (uBf[patchi].size())
+        {
+            maxChange = max
+            (
+                maxChange,
+                max(mag(uBf[patchi] - previousValues[patchi]))
+            );
+        }
+    }
+
+    reduce(maxChange, maxOp<scalar>());
+
+    Info<< "Final boundary refresh: max |change| of the boundary values of "
+        << u_.name() << " = " << maxChange << nl << endl;
+
+    spaceTimeModel::writeFields();
+}
+
+
 // ************************************************************************* //

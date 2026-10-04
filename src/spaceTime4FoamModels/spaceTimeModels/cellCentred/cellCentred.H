@@ -39,6 +39,13 @@ Description
     PBiCGStab with DILU). Converged when the initial residual of the solve
     falls below convergenceTolerance.
 
+    Final boundary refresh: after the last solve, the boundary values of u
+    hold the coefficients of the start of that iteration (for example
+    spaceTimeLinearExtrapolation extrapolates with the gradient of the
+    previous u). writeFields re-evaluates the boundary conditions once from
+    the final u before writing, so that the written boundary values belong
+    to the final state, and prints the largest change of a boundary value.
+
 SourceFiles
     cellCentred.C
 
@@ -128,6 +135,13 @@ public:
             {
                 return residual_;
             }
+
+
+        // Write
+
+            //- Refresh the boundary values of u from the final u, then
+            //  write the fields at the current time (iteration)
+            virtual void writeFields();
 };
 
 

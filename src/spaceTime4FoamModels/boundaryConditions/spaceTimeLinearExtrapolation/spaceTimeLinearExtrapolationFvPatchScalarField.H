@@ -54,7 +54,12 @@ Description
     correctBoundaryConditions() re-evaluates the face value with the new
     u_P but the same g, i.e. with the gradient lagged by one iteration. At
     convergence the lag is of the order of the change of u in one
-    iteration.
+    iteration. Before writing, cellCentred::writeFields() evaluates the
+    condition once more from the final u (final boundary refresh), so the
+    written gradient is that of the final u with the boundary values of
+    the last solve. Because grad(u) itself depends on the boundary values,
+    the written state is then consistent to the change made by the
+    refresh times the gradient sensitivity, not to round-off.
 
     Each patch with this condition computes the gradient in its own
     updateCoeffs(). To compute it only once per iteration, cache it in

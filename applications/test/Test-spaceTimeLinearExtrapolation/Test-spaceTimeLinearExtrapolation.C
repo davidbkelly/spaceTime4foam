@@ -36,10 +36,14 @@ Description
        patch values must equal the expected values to formulaTol.
     2. Written state: the value entry written by the solver must equal the
        expected value computed from the written field to convergedTol. It
-       is not round-off because the solver evaluates the face value after
-       the last solve with the gradient of the previous iteration (see the
-       boundary condition header); the difference is bounded by the change
-       of u in one iteration at convergence.
+       is not round-off: the solver evaluates the face value after the last
+       solve with the gradient of the previous iteration, and its final
+       boundary refresh before writing re-evaluates it once with the
+       gradient of the final u, which itself depends on the boundary values
+       being refreshed (see the boundary condition header). The difference
+       is of the order of the change of u in one iteration at convergence
+       (S5, N = 16 Left: 6.4e-10 and 7.2e-10 before the refresh, 4.3e-10
+       and 5.6e-10 after it, for Gauss linear and leastSquares).
     3. Read-back: the patch values of the field as read (reconstructed
        from the gradient entry) must equal the written value entry to
        formulaTol.
@@ -148,7 +152,8 @@ int main(int argc, char *argv[])
 
     // Tolerances. The face values are O(1).
     // - formulaTol: round-off of the same expression evaluated twice
-    // - convergedTol: lag of the gradient by one iteration at convergence
+    // - convergedTol: the gradient lag at convergence, reduced but not
+    //   removed by the final boundary refresh (see check 2)
     //   (convergenceTolerance 1e-10 on the normalised initial residual)
     // - nonTrivialMin: the extrapolation correction is O(h) on these meshes
     const scalar formulaTol = 1e-12;
