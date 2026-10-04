@@ -184,6 +184,22 @@ Boundary treatment (primary runs): data only on inflow boundaries.
   (about 2 N^2 cells for CCFV versus (N + 1)^2 nodes for VCFV).
 - Also record iterations to convergence and wall time.
 
+S5 decisions:
+
+- Primary t = T value: each scheme's actual outflow face value (cell
+  value for zeroGradient CCFV, extrapolated value for the EX variants,
+  nodal value for VCFV). Tables keep both CCFV versions; comparisons and
+  plots use the primary value.
+- Results (`.dat` and PNG) are committed, with a narrow `.gitignore`
+  exception, and carry provenance (commit hash, OpenFOAM version, date)
+  in every file or in a manifest.
+- Seed study: three seeds on the perturbed family, up to N = 128; all
+  seven schemes if that adds less than about 30 minutes of wall time,
+  otherwise CC-2, CC-2-EX and VC-2. Report the seeds and the spread (min,
+  max, mean) of errors and finest-pair orders.
+- Regression values are frozen into a hard test only after the developer
+  has reviewed the S5 results.
+
 Write all results as plain-text `.dat` files and produce convergence plots
 (PNG) with gnuplot. Ask before using Python for anything. Standing
 exception: `foam-auditor` may use Python for scratch-only independent
