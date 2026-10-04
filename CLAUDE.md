@@ -212,6 +212,26 @@ S5 decisions:
   writing. The extrapolated and cell versions are kept as extra columns.
 - Corner-fallback face count: 2 on Left meshes (structured and perturbed),
   0 on Right meshes, because no Right-diagonal cell has two outflow faces.
+- S5 finding: CC-2 and CC-2-EX (`Gauss linear` gradient) are first order
+  on perturbed meshes, because OpenFOAM's `Gauss linear` gradient is not
+  consistent on irregular triangles (its error for an exactly linear field
+  does not decrease with N), while `leastSquares` is exact. All schemes
+  stay in the tables exactly as run; no relabelling. A committed
+  gradient-consistency diagnostic (the gradient of an exactly linear
+  field on the perturbed meshes, Gauss linear against leastSquares, error
+  against N) produces a results table that the guide uses to explain the
+  drop.
+- Guide comparison on perturbed meshes: pair VC-2 with CC-2-LS as the best
+  available CCFV, stating its boundary-strip caveat and its cause
+  (`leastSquares` uses only the normal part of the boundary offset), and
+  separate how much of VC-2's advantage comes from gradient consistency
+  rather than node versus cell placement. Cite, for context only, the
+  mesh-quality references from Tufillaro et al.'s list: Katz and Sankaran,
+  J. Comput. Phys. 230 (2011) 7670-7686 (their ref. 24), and Diskin and
+  Thomas, AIAA Paper 2012-0609 (their ref. 26). Neither is in `refs/`, so
+  do not attribute specific results to them. List a consistent CCFV
+  (leastSquares with a consistent boundary treatment and a matching EX
+  outflow) as a next step.
 
 Write all results as plain-text `.dat` files and produce convergence plots
 (PNG) with gnuplot. Ask before using Python for anything. Standing
