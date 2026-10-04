@@ -21,7 +21,7 @@
 #     Reported digits: 4 significant digits, the printf format %.3e used
 #     for the result tables. A norm passes if its %.3e strings are
 #     identical for the two tolerances. Compared: every norm column of
-#     errors.dat (CCFV columns 6-20, VCFV columns 6-17). The largest
+#     errors.dat (CCFV columns 6-23, VCFV columns 6-17). The largest
 #     relative difference |e_1e-10 - e_1e-12|/e_1e-12 of each method is
 #     also printed. Exits with a non-zero status if a run fails or does not
 #     converge, or if a norm differs in the reported digits.
@@ -62,7 +62,7 @@ fi
 for scheme in CC-2 VC-2
 do
     case "$scheme" in
-    CC-2) model=cellCentred; lastColumn=20 ;;
+    CC-2) model=cellCentred; lastColumn=23 ;;
     VC-2) model=vertexCentred; lastColumn=17 ;;
     esac
 

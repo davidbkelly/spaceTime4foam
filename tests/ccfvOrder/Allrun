@@ -76,13 +76,15 @@ orderFile=run/ccfvOrderOrders.dat
 
 norms="L1_all L2_all Linf_all L1_int L2_int Linf_int L1_bnd L2_bnd Linf_bnd"
 norms="$norms L1_TExtrap L2_TExtrap Linf_TExtrap L1_TCell L2_TCell Linf_TCell"
+norms="$norms L1_TWritten L2_TWritten Linf_TWritten"
 
 {
     echo "# CCFV errors on the structured left-diagonal triangle meshes"
     echo "# (tests/ccfvOrder)"
     echo "# int = interior cells, bnd = boundary cells (a face on a"
     echo "# non-empty patch), TExtrap/TCell = t = T error on tEnd with the"
-    echo "# extrapolated face value / the cell value"
+    echo "# extrapolated face value / the cell value, TWritten = the written"
+    echo "# tEnd boundary value"
     echo "# scheme N h nUnknowns nIter converged finalResidual wallTime[s]" \
         "$norms"
 } > "$resultFile"
@@ -150,7 +152,7 @@ do
         nColumns=$(echo "$errors" | awk '{print NF}')
 
         if [[ $status -ne 0 ]] || [ "$converged" != "1" ] \
-            || [ "$nColumns" != "21" ]
+            || [ "$nColumns" != "24" ]
         then
             echo "    FAIL: $scheme N = $N (exit status $status," \
                 "converged '$converged', $nColumns error columns)"
@@ -159,10 +161,10 @@ do
             continue
         fi
 
-        # scheme N h nUnknowns, info (4 columns), norms (columns 6-20)
+        # scheme N h nUnknowns, info (4 columns), norms (columns 6-23)
         echo "$scheme $N $info $errors" | awk '{
             printf "%s %s %s %s %s %s %s %s", $1, $2, $8, $9, $3, $4, $5, $6
-            for (i = 12; i <= 26; i++) { printf " %s", $i }
+            for (i = 12; i <= 29; i++) { printf " %s", $i }
             printf "\n"
         }' >> "$resultFile"
     done
@@ -175,7 +177,7 @@ awk -v norms="$norms" '
         printf "# Observed orders p = log(e_coarse/e_fine)/log(h_coarse/h_fine)\n"
         printf "# (nan if an error is below 1e-12, i.e. zero to round-off)\n"
         printf "# scheme N_coarse N_fine"
-        for (k = 1; k <= 15; k++) { printf " p_%s", name[k] }
+        for (k = 1; k <= 18; k++) { printf " p_%s", name[k] }
         printf "\n"
     }
     /^#/ { next }
@@ -186,7 +188,7 @@ awk -v norms="$norms" '
         if (scheme in lastN)
         {
             line = scheme " " lastN[scheme] " " $2
-            for (k = 1; k <= 15; k++)
+            for (k = 1; k <= 18; k++)
             {
                 ec = last[scheme, k]; ef = $(8 + k)
                 if (ec > 1e-12 && ef > 1e-12)
@@ -206,7 +208,7 @@ awk -v norms="$norms" '
             order[++nSchemes] = scheme
         }
         lastN[scheme] = $2; lastH[scheme] = $3
-        for (k = 1; k <= 15; k++) { last[scheme, k] = $(8 + k) }
+        for (k = 1; k <= 18; k++) { last[scheme, k] = $(8 + k) }
     }
     END {
         for (s = 1; s <= nSchemes; s++) { printf "%s", lines[order[s]] }

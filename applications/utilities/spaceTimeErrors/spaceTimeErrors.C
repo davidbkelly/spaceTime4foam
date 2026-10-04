@@ -43,6 +43,12 @@ Description
               from fvc::grad using the grad(u) scheme of the case;
           (b) cell value u_P, which is the face value that zeroGradient
               gives.
+          (c) written value: the tEnd boundary values of u as written by
+              the solver (the value entry of the tEnd patch in the u
+              file; if the patch writes no value entry, e.g. zeroGradient,
+              the value the condition gives when u is read, u_P for
+              zeroGradient). This is the face value the solver used, e.g.
+              u_P on corner-fallback faces of spaceTimeLinearExtrapolation.
     - Mesh size h = sqrt(A_domain/(nTriangles/2)), with A_domain the area of
       the front patch (the frontAndBack faces at the minimum z). This is
       1/N on the N x N triangle meshes. If the front faces are not all
@@ -67,7 +73,7 @@ Description
       number of interior nodes for strong (vertexCentredCoeffs).
 
     Nominal h: the optional argument -nominalH <h> is written as the last
-    column (CCFV column 21, VCFV column 19), e.g. 1/N for the N x N
+    column (CCFV column 24, VCFV column 19), e.g. 1/N for the N x N
     benchmark meshes and 1/2^n for mesh n of the Tufillaro et al. family
     (whose area-based h above is about 0.707/2^n). The two differ by a
     constant factor on a mesh family, so observed orders do not depend on
@@ -81,6 +87,7 @@ Description
 
 #include "fvCFD.H"
 #include "OFstream.H"
+#include "IFstream.H"
 #include "emptyPolyPatch.H"
 #include "analyticalSolution.H"
 #include "medianDualMesh.H"
@@ -309,6 +316,7 @@ int main(int argc, char *argv[])
     errorNorms boundaryNorms;
     errorNorms tEndExtrapolatedNorms;
     errorNorms tEndCellNorms;
+    errorNorms tEndWrittenNorms;
     errorNorms tEndNodalNorms;
     label nUnknowns = 0;
     label nNodes = 0;
@@ -404,6 +412,36 @@ int main(int argc, char *argv[])
             );
 
             tEndCellNorms.add(u[celli] - uExactFace[facei], length);
+        }
+
+        // Written tEnd boundary values: the value entry of the tEnd patch
+        // in the u file, read directly; without one (e.g. zeroGradient),
+        // the patch value of u as read (u_P for zeroGradient)
+        scalarField uWritten(u.boundaryField()[tEndID]);
+        word writtenSource("patch value of u as read (no value entry)");
+        {
+            IFstream uFile(u.objectPath());
+            const dictionary uDict(uFile);
+            const dictionary& tEndDict =
+                uDict.subDict("boundaryField").subDict("tEnd");
+
+            if (tEndDict.found("value"))
+            {
+                uWritten = scalarField("value", tEndDict, tEndPatch.size());
+                writtenSource = "value entry of the u file";
+            }
+        }
+
+        Info<< "Written tEnd values: " << writtenSource.c_str() << " ("
+            << u.boundaryField()[tEndID].type() << ")" << nl << endl;
+
+        forAll(faceCells, facei)
+        {
+            tEndWrittenNorms.add
+            (
+                uWritten[facei] - uExactFace[facei],
+                magSf[facei]/Lz
+            );
         }
     }
     else if (method == "vertexCentred")
@@ -531,6 +569,7 @@ int main(int argc, char *argv[])
     boundaryNorms.finalise();
     tEndExtrapolatedNorms.finalise();
     tEndCellNorms.finalise();
+    tEndWrittenNorms.finalise();
     tEndNodalNorms.finalise();
 
     const bool vertexCentred = (method == "vertexCentred");
@@ -569,6 +608,7 @@ int main(int argc, char *argv[])
     {
         printNorms("extrapolated", tEndExtrapolatedNorms);
         printNorms("cell value", tEndCellNorms);
+        printNorms("written value", tEndWrittenNorms);
     }
 
     Info<< endl;
@@ -620,7 +660,8 @@ int main(int argc, char *argv[])
             << "# 12-14 L1 L2 Linf over boundary unknowns" << nl
             << "# 15-17 L1 L2 Linf on tEnd, extrapolated face value" << nl
             << "# 18-20 L1 L2 Linf on tEnd, cell value" << nl
-            << "# 21    nominal h (-nominalH)" << nl;
+            << "# 21-23 L1 L2 Linf on tEnd, written boundary value" << nl
+            << "# 24    nominal h (-nominalH)" << nl;
 
         os  << method << " " << h << " " << nUnknowns << " "
             << interiorNorms.n << " " << boundaryNorms.n << " ";
@@ -628,7 +669,9 @@ int main(int argc, char *argv[])
         writeNorms(os, interiorNorms) << " ";
         writeNorms(os, boundaryNorms) << " ";
         writeNorms(os, tEndExtrapolatedNorms) << " ";
-        writeNorms(os, tEndCellNorms) << " " << nominalHString.c_str() << nl;
+        writeNorms(os, tEndCellNorms) << " ";
+        writeNorms(os, tEndWrittenNorms) << " "
+            << nominalHString.c_str() << nl;
     }
 
     Info<< "Written " << os.name() << nl << nl << "End" << nl << endl;
