@@ -475,6 +475,9 @@ then
                 f="$resultsDir/${scheme}_$family.dat"
                 [ -f "$f" ] && files="$files $f"
             done
+            # No table of this scheme (e.g. CC-2-LS-EX, probe only): awk
+            # must not read standard input instead
+            [ -n "$files" ] || continue
             # shellcheck disable=SC2086
             awk -v s="$scheme" -v maxN="$seedMaxN" -v names="$normNames" '
                 BEGIN { split(names, name, " ") }
@@ -516,6 +519,9 @@ then
                 f="$resultsDir/orders_${scheme}_$family.dat"
                 [ -f "$f" ] && files="$files $f"
             done
+            # No table of this scheme (e.g. CC-2-LS-EX, probe only): awk
+            # must not read standard input instead
+            [ -n "$files" ] || continue
             # shellcheck disable=SC2086
             awk -v s="$scheme" -v maxN="$seedMaxN" -v names="$normNames" '
                 BEGIN { split(names, name, " ") }
