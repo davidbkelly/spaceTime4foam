@@ -81,12 +81,14 @@
 #
 #     Output: the tables (.dat), manifest.dat and figures/*.png in the
 #     results directory, made by ./makeTables and plotConvergence.gp from
-#     the records in run/rows/. A full sweep (no -maxN, -family or -schemes
-#     option) writes to results/, any other to run/results/ unless
-#     -results is given, so a partial rerun does not overwrite the
+#     the records in run/rows/. A full sweep (no -minN, -maxN, -family or
+#     -schemes option) writes to results/, any other to run/results/
+#     unless -results is given, so a partial rerun does not overwrite the
 #     committed results.
 #
 #     Usage: ./Allrun [OPTIONS]
+#       -minN <N>             smallest N: 8, 16, 32, 64, 128 or 256 (default
+#                             8; used by tests/benchmarkRegression)
 #       -maxN <N>             largest N: 8, 16, 32, 64, 128 or 256 (default
 #                             256; the seed study stops at 128 and the
 #                             aligned family at 64)
@@ -97,6 +99,7 @@
 #       -seedSchemes <choice> auto (default), all or reduced
 #       -results <dir>        results directory
 #       -force                rerun cases that already have a record
+#       -noFigures            make the tables only (no gnuplot figures)
 #       -help                 print this usage
 #
 #------------------------------------------------------------------------------
@@ -135,12 +138,14 @@ function usage()
 
 # Options
 
+firstN=8
 maxN=256
 families=""
 schemes="$allSchemes"
 seedSchemesOption=auto
 resultsDir=""
 force=false
+figures=true
 partial=false
 
 while [ "$#" -gt 0 ]
@@ -148,6 +153,12 @@ do
     case "$1" in
     -h | -help)
         usage 0
+        ;;
+    -minN)
+        [ "$#" -ge 2 ] || usage 1
+        firstN="$2"
+        partial=true
+        shift
         ;;
     -maxN)
         [ "$#" -ge 2 ] || usage 1
@@ -194,6 +205,9 @@ do
     -force)
         force=true
         ;;
+    -noFigures)
+        figures=false
+        ;;
     *)
         echo "Unknown option '$1'"
         usage 1
@@ -206,6 +220,17 @@ case "$maxN" in
 8 | 16 | 32 | 64 | 128 | 256) ;;
 *) echo "-maxN must be 8, 16, 32, 64, 128 or 256"; exit 1 ;;
 esac
+
+case "$firstN" in
+8 | 16 | 32 | 64 | 128 | 256) ;;
+*) echo "-minN must be 8, 16, 32, 64, 128 or 256"; exit 1 ;;
+esac
+
+if [ "$firstN" -gt "$maxN" ]
+then
+    echo "-minN $firstN is larger than -maxN $maxN"
+    exit 1
+fi
 
 [ -n "$families" ] || families="$allFamilies"
 
@@ -255,10 +280,11 @@ mkdir -p run/rows run/meshes run/cases
 
 # Helper functions
 
-# meshSizes <largest N>: 8 16 ... up to the largest N
+# meshSizes <largest N> [smallest N]: 8 16 ... (or from the smallest N) up
+# to the largest N
 function meshSizes()
 {
-    local N=8
+    local N="${2:-8}"
     local sizes=""
     while [ "$N" -le "$1" ]
     do
@@ -529,7 +555,7 @@ function runProbe()
     local row="run/rows/$family/probe_${scheme}_N$N.row"
     local meshDir="run/meshes/${family}_N$N"
     local caseDir="run/cases/${family}_N$N/$scheme"
-    local meshChecksum caseChecksum pid status start now elapsed killed
+    local meshChecksum caseChecksum pid status polls maxPolls elapsed killed
     local info outcome nIter residual wallTime times lastTime prevTime
     local fallback expectedFallback maxAbsU errLocation duLocation
 
@@ -566,8 +592,11 @@ function runProbe()
     # keyword (millisecond resolution, as the main runs), watched from
     # here: after probeTimeLimit seconds the solver (the child of the
     # subshell) is killed (TERM, then KILL). wait reaps the subshell, so
-    # nothing is left running
-    start=$(date +%s)
+    # nothing is left running. The deadline counts 0.2 s polls (5 per
+    # second), so it has 0.2 s resolution; date +%s would round the start
+    # down to a whole second (/bin/bash 3.2 on macOS has no EPOCHREALTIME)
+    polls=0
+    maxPolls=$((5*probeTimeLimit))
     killed=0
     (
         { time spaceTime4Foam -case "$caseDir" \
@@ -576,8 +605,7 @@ function runProbe()
     pid=$!
     while kill -0 "$pid" 2> /dev/null
     do
-        now=$(date +%s)
-        if [ $((now - start)) -ge "$probeTimeLimit" ]
+        if [ "$polls" -ge "$maxPolls" ]
         then
             killed=1
             pkill -TERM -P "$pid" 2> /dev/null
@@ -586,6 +614,7 @@ function runProbe()
             break
         fi
         sleep 0.2
+        polls=$((polls + 1))
     done
     wait "$pid"
     status=$?
@@ -963,7 +992,7 @@ function runFamily()
 
     echo
     echo "Family $family (Allmesh $(familyMeshArguments "$family" N))"
-    for N in $(meshSizes "$familyMaxN")
+    for N in $(meshSizes "$familyMaxN" "$firstN")
     do
         echo "  N = $N"
         for scheme in "$@"
@@ -1117,12 +1146,17 @@ fi
 echo
 ./makeTables run/rows "$resultsDir" "$maxN" || fail "makeTables"
 
-mkdir -p "$resultsDir"/figures
-gnuplot -e "resultsDir='$resultsDir'" plotConvergence.gp \
-    > run/log.plotConvergence 2>&1 \
-    || fail "plotConvergence.gp (see run/log.plotConvergence)"
-
-echo
-echo "Results in $resultsDir (figures in $resultsDir/figures)"
+if [ "$figures" = true ]
+then
+    mkdir -p "$resultsDir"/figures
+    gnuplot -e "resultsDir='$resultsDir'" plotConvergence.gp \
+        > run/log.plotConvergence 2>&1 \
+        || fail "plotConvergence.gp (see run/log.plotConvergence)"
+    echo
+    echo "Results in $resultsDir (figures in $resultsDir/figures)"
+else
+    echo
+    echo "Results in $resultsDir (no figures: -noFigures)"
+fi
 
 #------------------------------------------------------------------------------
