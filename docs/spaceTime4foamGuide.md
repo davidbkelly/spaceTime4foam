@@ -289,14 +289,35 @@ and exact-solution `New` functions read the dictionary type names, so
 changing a case's `spaceTimeModel` or `analyticalSolution` entry changes
 the selected implementation without changing the solver executable.
 
-The data path is: Gmsh triangle mesh to `gmshToFoam`; optional interior
-point perturbation; `spaceTimeModel` selection from
-[`spaceTimeProperties`](../tutorials/advection1D/travellingSine/constant/spaceTimeProperties);
-CCFV cell field or VCFV front-patch nodes and dual geometry; steady
-residual iteration; field output; `spaceTimeErrors`; one-line sweep
-records; tables and figures. The selected gradient and divergence
-schemes are in [`fvSchemes`](../tutorials/advection1D/travellingSine/system/fvSchemes),
-and the CCFV patch types are in [`0/u`](../tutorials/advection1D/travellingSine/0/u).
+The data path, in the order a run uses it, is:
+
+1. [`Allmesh`](../tutorials/advection1D/travellingSine/Allmesh) passes $N$
+   and the diagonal direction to
+   [`spaceTimeSquare.geo`](../tutorials/advection1D/travellingSine/gmsh/spaceTimeSquare.geo),
+   imports the extruded mesh with `gmshToFoam`, and checks it. The optional
+   [`perturbSpaceTimeMesh`](../applications/utilities/perturbSpaceTimeMesh/perturbSpaceTimeMesh.C)
+   moves paired front/back interior points with the same $(x,t)$ offset.
+2. [`spaceTime4Foam.C`](../applications/solvers/spaceTime4Foam/spaceTime4Foam.C)
+   calls `spaceTimeModel::New`. The base class reads
+   [`spaceTimeProperties`](../tutorials/advection1D/travellingSine/constant/spaceTimeProperties),
+   constructs the mesh, $\boldsymbol{A}$ and the selected exact solution,
+   and stores the stopping tolerance. The selected CCFV or VCFV model
+   then owns its field and evaluates one steady iteration per `runTime`
+   step.
+3. CCFV reads the cell field from [`0/u`](../tutorials/advection1D/travellingSine/0/u)
+   and assembles `fvm::div(phiST,u)` using the divergence and gradient
+   choices in [`fvSchemes`](../tutorials/advection1D/travellingSine/system/fvSchemes).
+   VCFV instead extracts triangles from the front patch in
+   `medianDualMesh`, pairs each front node with its back node, computes
+   $V_j$, $\boldsymbol{n}_{jk}$ and least-squares coefficients, then
+   accumulates the edge and boundary fluxes in `vertexCentred`.
+4. The model writes the converged cell or point field and
+   `spaceTimeSolverInfo.dat`. [`spaceTimeErrors.C`](../applications/utilities/spaceTimeErrors/spaceTimeErrors.C)
+   reads that field and the selected analytical solution, identifies
+   interior, boundary and $t=T$ subsets, and writes their weighted norms.
+   [`Allrun`](../tutorials/advection1D/travellingSine/Allrun) collects
+   one checked row per case. `makeTables` calculates observed orders and
+   matched-unknown errors; `plotConvergence.gp` draws the figures.
 
 On a machine with OpenFOAM.com v2412, Gmsh and gnuplot installed:
 
@@ -561,7 +582,8 @@ main convergence result. At $a=1$, $\boldsymbol{A}=(1,1)$ is parallel to
 each Right diagonal, so its flux through that face is zero. CCFV copies
 values along characteristic paths. Its `tEnd` face centres lie on the
 characteristics carrying those copied values, and for $T=1$ the exact
-wave repeats there; the CCFV $t=T$ errors are zero to about $10^{-13}$.
+wave repeats there; the CCFV $t=T$ errors are zero to a few times
+$10^{-13}$.
 Cell centroids lie off those characteristic paths, so domain errors
 remain nonzero. The corresponding $t=T$ orders are `nan` because they
 would divide round-off-level errors. VCFV nodal $t=T$ values are not
