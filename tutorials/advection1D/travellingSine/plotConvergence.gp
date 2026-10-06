@@ -8,8 +8,8 @@
 #
 # Description
 #     gnuplot script for the S5 benchmark figures. Every figure is drawn
-#     from the tables written by makeTables (<scheme>_<family>.dat and
-#     orders_<scheme>_<family>.dat) only. Figures whose tables are missing
+#     from the tables written by makeTables (<scheme>_<family>.dat,
+#     orders_<scheme>_<family>.dat and gradientConsistency.dat) only. Figures whose tables are missing
 #     (for a partial sweep) are skipped.
 #
 #     Every scheme keeps the same colour and point type in every figure.
@@ -256,10 +256,11 @@ do for [family in mainFamilies] {
 }
 
 
-# 7. Interior L2 orders of CC-2 and VC-2, structured against perturbed
+# 7. Interior L2 orders of CC-2, CC-2-LS and VC-2, structured against
+# perturbed
 
-listS = available("leftStructured", "2 7")
-listP = available("leftPerturbed", "2 7")
+listS = available("leftStructured", "2 3 7")
+listP = available("leftPerturbed", "2 3 7")
 if (strlen(listS) > 0 && strlen(listP) > 0) {
     unset label
     unset logscale y
@@ -267,7 +268,7 @@ if (strlen(listS) > 0 && strlen(listP) > 0) {
     set output sprintf("%s/interiorOrders_structuredVsPerturbed.png", \
         figureDir)
     set title "Observed order of the interior L2 error against N" \
-        . " (pair N/2 to N),\nCC-2 and VC-2, structured (solid) and" \
+        . " (pair N/2 to N),\nCC-2, CC-2-LS and VC-2, structured (solid) and" \
         . " perturbed (dashed) left-diagonal triangles"
     eval nTics
     set xrange [16/1.3:256*1.3]
@@ -295,7 +296,58 @@ if (strlen(listS) > 0 && strlen(listP) > 0) {
 }
 
 
-# 8. Right-diagonal (aligned) family: an illustration only
+# 8. Gradient consistency: interior max error of the cell gradient of
+# u = x + 2 t against N (gradientConsistency.dat)
+
+gradientTable = resultsDir."/gradientConsistency.dat"
+if (system("[ -f '".gradientTable."' ] && echo 1 || echo 0") + 0 == 1) {
+    unset label
+    unset arrow
+    set logscale xy
+    set output sprintf("%s/gradientConsistency.png", figureDir)
+    set title "Interior max |grad(u) - (1, 2)| of u = x + 2 t against N," \
+        . "\nleft-diagonal triangles: perturbed (solid), structured (dashed)"
+    # The data lie near 1 and near 1e-13: the legend goes in the empty
+    # band between them
+    set key inside right center
+    eval nTics
+    set xrange [16/1.3:256*1.3]
+    # Values below gradientFloor (none expected) are drawn at the floor
+    gradientFloor = 1e-16
+    roundOff = 1e-12
+    set yrange [gradientFloor:10]
+    set format x "%g"
+    set format y "10^{%L}"
+    set xlabel "N (N x N squares, h = 1/N)"
+    set ylabel "interior max |grad(u) - (1, 2)|"
+    set arrow 1 from graph 0, first roundOff to graph 1, first roundOff \
+        nohead ls 100
+    set label 1 "round-off level (below: zero to machine precision)" \
+        at graph 0.03, first roundOff offset 0, 0.8 textcolor rgb refColour
+    gradientValue(f, col) = (strcol(1) eq f) ? \
+        ((column(col) > gradientFloor) ? column(col) : gradientFloor) : NaN
+    gaussColour = colour(2)
+    lsColour = colour(3)
+    plot gradientTable using 2:(gradientValue("leftPerturbed", 5)) \
+            with linespoints lw 2 pt 5 ps 1.6 lc rgb gaussColour \
+            title "Gauss linear (CC-2), perturbed", \
+        gradientTable using 2:(gradientValue("leftStructured", 5)) \
+            with linespoints lw 2 pt 4 ps 1.6 lc rgb gaussColour dt (8, 5) \
+            title "Gauss linear (CC-2), structured", \
+        gradientTable using 2:(gradientValue("leftPerturbed", 9)) \
+            with linespoints lw 2 pt 9 ps 1.6 lc rgb lsColour \
+            title "leastSquares (CC-2-LS), perturbed", \
+        gradientTable using 2:(gradientValue("leftStructured", 9)) \
+            with linespoints lw 2 pt 8 ps 1.6 lc rgb lsColour dt (8, 5) \
+            title "leastSquares (CC-2-LS), structured"
+    unset arrow
+    unset label
+    set autoscale y
+    set key outside right top
+}
+
+
+# 9. Right-diagonal (aligned) family: an illustration only
 
 family = "rightStructured"
 list = available(family, allIndices)

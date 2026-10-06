@@ -65,6 +65,12 @@
 #     these runs: probeSelfCheck stops the script if the relaxation could
 #     apply to any other (family, scheme).
 #
+#     Gradient-consistency diagnostic (CLAUDE.md section 6, S5 finding):
+#     on the structured and perturbed families, N >= gradientMinN (16),
+#     Test-gradientConsistency evaluates the Gauss linear and leastSquares
+#     cell gradients of the linear field u = x + 2 t on the sweep mesh;
+#     makeTables writes results/gradientConsistency.dat.
+#
 #     Primary t = T value: the written tEnd boundary values (errors.dat
 #     columns 21-23) for CCFV, the nodal values for VCFV.
 #
@@ -107,6 +113,10 @@ extraSeeds="7 3"
 seedMaxN=128
 alignedMaxN=64
 seedTimeLimit=1800
+
+# Gradient-consistency diagnostic: smallest N (on the structured and
+# perturbed families)
+gradientMinN=16
 
 # CC-2-LS-EX on the perturbed families (stability probe): wall-time limit
 # of one run [s]. The iteration cap is endTime of system/controlDict
@@ -210,7 +220,7 @@ then
 fi
 
 for app in gmsh gnuplot gmshToFoam spaceTime4Foam spaceTimeErrors \
-    perturbSpaceTimeMesh
+    perturbSpaceTimeMesh Test-gradientConsistency
 do
     if ! command -v "$app" > /dev/null 2>&1
     then
@@ -506,8 +516,11 @@ function probeLocation()
 #   N outcome iterations finalResidual wallTime maxAbsU lastTime
 #   maxErr maxErrX maxErrT maxErrRegion maxDu maxDuX maxDuT maxDuRegion
 #   fallbackFaces meshChecksum elapsed commit dirty date
-# with err = u - u_exact at the last written time and du the change of u
-# between the last two written times
+# with err = u - u_exact at the last written time, du the change of u
+# between the last two written times, elapsed the solver run timed with
+# the time keyword (millisecond resolution, as the main runs) and wallTime
+# the solver-loop time of spaceTimeSolverInfo.dat, or elapsed if there is
+# no such file (a crashed run)
 function runProbe()
 {
     local family="$1"
@@ -549,12 +562,17 @@ function runProbe()
             > /dev/null 2>&1 || exit 1
     ) || fail "$scheme on $family N = $N: case set-up (see $caseDir)"
 
-    # The solver runs in the background, watched from here: it is killed
-    # (TERM, then KILL) after probeTimeLimit seconds. wait reaps it, so
+    # The solver runs in a background subshell that times it with the time
+    # keyword (millisecond resolution, as the main runs), watched from
+    # here: after probeTimeLimit seconds the solver (the child of the
+    # subshell) is killed (TERM, then KILL). wait reaps the subshell, so
     # nothing is left running
     start=$(date +%s)
     killed=0
-    spaceTime4Foam -case "$caseDir" > "$caseDir"/log.spaceTime4Foam 2>&1 &
+    (
+        { time spaceTime4Foam -case "$caseDir" \
+            > "$caseDir"/log.spaceTime4Foam 2>&1 ; } 2> "$caseDir"/elapsed
+    ) &
     pid=$!
     while kill -0 "$pid" 2> /dev/null
     do
@@ -562,16 +580,21 @@ function runProbe()
         if [ $((now - start)) -ge "$probeTimeLimit" ]
         then
             killed=1
-            kill -TERM "$pid" 2> /dev/null
+            pkill -TERM -P "$pid" 2> /dev/null
             sleep 2
-            kill -KILL "$pid" 2> /dev/null
+            pkill -KILL -P "$pid" 2> /dev/null
             break
         fi
         sleep 0.2
     done
     wait "$pid"
     status=$?
-    elapsed=$(($(date +%s) - start))
+    elapsed=$(tail -1 "$caseDir"/elapsed)
+    case "$elapsed" in
+    [0-9]*.[0-9]*) ;;
+    *) fail "$scheme on $family N = $N (probe): no elapsed time" \
+        "(see $caseDir/elapsed)" ;;
+    esac
 
     info=""
     if [ -f "$caseDir"/postProcessing/spaceTimeSolverInfo.dat ]
@@ -845,6 +868,91 @@ function runCase()
     rm -rf "$caseDir"
 }
 
+# hasGradientConsistency <family name> <N>
+# True for the families and N of the gradient-consistency diagnostic
+function hasGradientConsistency()
+{
+    case "$1" in
+    leftStructured | leftPerturbed) ;;
+    *) return 1 ;;
+    esac
+    [ "$2" -ge "$gradientMinN" ]
+}
+
+# gradientConsistency <family name> <N>
+# Gradient-consistency diagnostic (Test-gradientConsistency): the interior
+# and all-cell max and RMS of |grad(u) - (1, 2, 0)| for u = x + 2 t with
+# Gauss linear and leastSquares, on the mesh of the sweep. Records
+# run/rows/<family>/gradient_N<N>.row:
+#   N nCells nInterior
+#   GaussLinear: interiorMax interiorRms allMax allRms
+#   leastSquares: interiorMax interiorRms allMax allRms
+#   meshChecksum elapsed commit dirty date
+function gradientConsistency()
+{
+    local family="$1"
+    local N="$2"
+    local row="run/rows/$family/gradient_N$N.row"
+    local meshDir="run/meshes/${family}_N$N"
+    local caseDir="run/cases/${family}_N$N/gradientConsistency"
+    local meshChecksum caseChecksum elapsed values
+
+    if [ -f "$row" ] && [ "$force" = false ]
+    then
+        echo "    gradient consistency: recorded in $row (skipped; -force" \
+            "reruns it)"
+        return 0
+    fi
+
+    makeMesh "$family" "$N"
+    meshChecksum=$(awk '{print $2}' "run/rows/$family/mesh_N$N.row")
+
+    rm -rf "$caseDir"
+    mkdir -p "$caseDir"
+    cp -r constant system "$caseDir"/
+    cp -r "$meshDir"/constant/polyMesh "$caseDir"/constant/
+
+    echo "    gradient consistency (diagnostic)"
+    { time Test-gradientConsistency -case "$caseDir" \
+        > "$caseDir"/log.Test-gradientConsistency 2>&1 ; } \
+        2> "$caseDir"/elapsed \
+        || fail "Test-gradientConsistency on $family N = $N (see $caseDir)"
+    elapsed=$(tail -1 "$caseDir"/elapsed)
+
+    caseChecksum=$(pointsChecksum "$caseDir"/constant/polyMesh/points)
+    if [ "$caseChecksum" != "$meshChecksum" ]
+    then
+        fail "gradient consistency on $family N = $N: point-list checksum" \
+            "$caseChecksum differs from the mesh checksum $meshChecksum"
+    fi
+
+    # The 8 lines (scheme, subset) in a fixed order; every one must exist
+    values=$(awk '
+        $1 == "gradientError" { v[$2 " " $3] = $5 " " $6; n[$3] = $4 }
+        END {
+            k = 0
+            printf "%s %s", n["all"], n["interior"]
+            split("GaussLinear leastSquares", s, " ")
+            for (i = 1; i <= 2; i++)
+            {
+                if ((s[i] " interior") in v && (s[i] " all") in v)
+                {
+                    printf " %s %s", v[s[i] " interior"], v[s[i] " all"]
+                    k++
+                }
+            }
+            printf "\n"
+            exit (k == 2 && n["all"] > 0 && n["interior"] > 0) ? 0 : 1
+        }' "$caseDir"/log.Test-gradientConsistency) \
+        || fail "gradient consistency on $family N = $N: incomplete output" \
+            "(see $caseDir/log.Test-gradientConsistency)"
+
+    echo "$N $values $meshChecksum $elapsed $gitCommit $gitDirty" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$row"
+
+    rm -rf "$caseDir"
+}
+
 # runFamily <family name> <largest N> <schemes...>
 function runFamily()
 {
@@ -862,6 +970,10 @@ function runFamily()
         do
             runCase "$family" "$N" "$scheme"
         done
+        if hasGradientConsistency "$family" "$N"
+        then
+            gradientConsistency "$family" "$N"
+        fi
         # The mesh is no longer needed (its checksum is recorded)
         rm -rf "run/meshes/${family}_N$N" "run/cases/${family}_N$N"
     done
