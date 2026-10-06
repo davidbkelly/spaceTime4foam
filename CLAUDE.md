@@ -475,6 +475,37 @@ Required sections:
 11. When each approach is likely to be useful, and recommended next steps.
 12. References.
 
+Results-review points for the guide (developer, after S5; together with
+the S5 audit's "points the guide must get right" in docs/audits/S5.md):
+
+- The VC-2 advantage ratios (about 6x structured against CC-2-EX, about
+  9x perturbed against CC-2-LS, in L2) are snapshots at about 60,000
+  unknowns. Because the orders differ, the ratio grows with refinement;
+  say so and show it from the per-unknown plots.
+- Report the full sequence of observed orders for CC-1 and VC-1 across all
+  mesh pairs. If they rise towards 1, explain the 0.92 as pre-asymptotic
+  (first-order numerical diffusion still noticeably damping the wave at
+  N = 256).
+- Keep accuracy per unknown (discretisation) separate from iterations and
+  wall time (solver choice: explicit RK2 for VC-2, implicit for CCFV);
+  note that a defect-correction VCFV solver would change the cost but not
+  the accuracy.
+- State that CCFV cell averages are compared with point values at
+  centroids, an O(h^2) difference that does not affect the second-order
+  conclusions.
+- Explain why Right-family domain errors are nonzero although the t = T
+  values are exact: centroids lie off the characteristics that carry the
+  copied face values, while tEnd face centres lie on them because a = 1
+  and T = 1.
+- Pair VC-2 with CC-2-LS on perturbed meshes (about 9x in L2 at 60,000
+  unknowns), not with CC-2-EX (about 17x).
+
+Regression freeze (decided after S5 review): N = 32 errors (all subsets)
+and finest-pair orders for every scheme on the main families, relative
+tolerance 1e-4 on errors and +/-0.05 on orders. The N = 32 checks run in
+the default `Alltest`; the finest-pair orders run in an optional full
+mode. The S5 audit items N1-N6 are completed with the freeze, before S6.
+
 Rules for the guide:
 
 - Every number must come from a script in this repository; state the
