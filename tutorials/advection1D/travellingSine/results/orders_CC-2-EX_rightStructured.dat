@@ -1,9 +1,10 @@
 # CC-2-EX: observed orders, structured right triangles, right diagonals (Allmesh N right): CHARACTERISTIC-ALIGNMENT ILLUSTRATION, not a main result
 # travellingSine, a = 1, k = 1, convergence tolerance 1e-10
-# Provenance: spaceTime4foam commit 4b5dc066ff25a5580937068e902152855cb5f39d (dirty 0)
+# Provenance: spaceTime4foam commit 146475cd784068acb349a606a4d15dfa5c03fe94 (dirty 0)
 # OpenFOAM v2412 (darwin64ClangDPInt32Opt), arm64, Apple M4 Pro
-# Runs made 2026-10-04T11:02:54Z to 2026-10-04T11:07:55Z, tables made 2026-10-04T11:07:56Z
-# Total sweep wall time 261.9 s (meshes and runs, serial); see manifest.dat
+# Runs made 2026-10-06T10:47:58Z to 2026-10-06T10:53:11Z, tables made 2026-10-06T10:53:11Z
+# Total sweep wall time 278.8 s (meshes, runs and diagnostics, serial);
+# see manifest.dat
 # p = log(e_coarse/e_fine)/log(h_coarse/h_fine), h = 1/N; computed from CC-2-EX_rightStructured.dat
 # - : no such error for this method; nan: an error below 1e-12 (zero to round-off)
 # T = primary t = T value, TExtrap/TCell = CCFV extrapolated/cell value
