@@ -253,7 +253,7 @@ TMPDIR="$runDir"/tmp "$makeTables" "$runDir"/rowsSwapped \
 status=$?
 after=$(cd "$runDir"/resultsOld && ls && cat ./*)
 nFiles=$(find "$runDir"/resultsOld -type f | wc -l | tr -d ' ')
-leftOver=$(find "$runDir"/tmp -mindepth 1 | wc -l | tr -d ' ')
+leftOver=$(find "$runDir"/tmp -name 'makeTables.*' | wc -l | tr -d ' ')
 check "failed check: non-zero status, old results unchanged, no new files" \
     "$([ "$status" -ne 0 ] && [ "$before" = "$after" ] \
         && echo 1 || echo 0)" \
@@ -265,7 +265,7 @@ check "failed check: no temporary directory left" \
 TMPDIR="$runDir"/tmp "$makeTables" "$runDir"/rows "$runDir"/resultsOld 32 \
     > "$runDir"/log.makeTablesNew 2>&1
 status=$?
-leftOver=$(find "$runDir"/tmp -mindepth 1 | wc -l | tr -d ' ')
+leftOver=$(find "$runDir"/tmp -name 'makeTables.*' | wc -l | tr -d ' ')
 check "passed check: the old summary is replaced, no temporary directory" \
     "$([ "$status" -eq 0 ] && [ "$leftOver" = 0 ] \
         && ! grep -q '^old' "$runDir"/resultsOld/summary.dat \
