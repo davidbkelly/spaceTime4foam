@@ -9,10 +9,13 @@
 # Description
 #     gnuplot script for the S5 benchmark figures. Every figure is drawn
 #     from the tables written by makeTables (<scheme>_<family>.dat,
-#     orders_<scheme>_<family>.dat and gradientConsistency.dat) only. Figures whose tables are missing
-#     (for a partial sweep) are skipped.
+#     orders_<scheme>_<family>.dat and gradientConsistency.dat) only.
+#     Figures whose tables are missing (for a partial sweep) are skipped.
 #
 #     Every scheme keeps the same colour and point type in every figure.
+#     Figures that compare the structured and perturbed families
+#     (interiorOrders_structuredVsPerturbed.png, gradientConsistency.png)
+#     draw structured solid and perturbed dashed, and say so in the title.
 #
 #     Usage: gnuplot -e "resultsDir='results'" plotConvergence.gp
 #            (figures in <resultsDir>/figures)
@@ -306,7 +309,7 @@ if (system("[ -f '".gradientTable."' ] && echo 1 || echo 0") + 0 == 1) {
     set logscale xy
     set output sprintf("%s/gradientConsistency.png", figureDir)
     set title "Interior max |grad(u) - (1, 2)| of u = x + 2 t against N," \
-        . "\nleft-diagonal triangles: perturbed (solid), structured (dashed)"
+        . "\nleft-diagonal triangles: structured (solid), perturbed (dashed)"
     # The data lie near 1 and near 1e-13: the legend goes in the empty
     # band between them
     set key inside right center
@@ -328,18 +331,18 @@ if (system("[ -f '".gradientTable."' ] && echo 1 || echo 0") + 0 == 1) {
         ((column(col) > gradientFloor) ? column(col) : gradientFloor) : NaN
     gaussColour = colour(2)
     lsColour = colour(3)
-    plot gradientTable using 2:(gradientValue("leftPerturbed", 5)) \
-            with linespoints lw 2 pt 5 ps 1.6 lc rgb gaussColour \
-            title "Gauss linear (CC-2), perturbed", \
-        gradientTable using 2:(gradientValue("leftStructured", 5)) \
-            with linespoints lw 2 pt 4 ps 1.6 lc rgb gaussColour dt (8, 5) \
+    plot gradientTable using 2:(gradientValue("leftStructured", 5)) \
+            with linespoints lw 2 pt 4 ps 1.6 lc rgb gaussColour \
             title "Gauss linear (CC-2), structured", \
-        gradientTable using 2:(gradientValue("leftPerturbed", 9)) \
-            with linespoints lw 2 pt 9 ps 1.6 lc rgb lsColour \
-            title "leastSquares (CC-2-LS), perturbed", \
+        gradientTable using 2:(gradientValue("leftPerturbed", 5)) \
+            with linespoints lw 2 pt 5 ps 1.6 lc rgb gaussColour dt (8, 5) \
+            title "Gauss linear (CC-2), perturbed", \
         gradientTable using 2:(gradientValue("leftStructured", 9)) \
-            with linespoints lw 2 pt 8 ps 1.6 lc rgb lsColour dt (8, 5) \
-            title "leastSquares (CC-2-LS), structured"
+            with linespoints lw 2 pt 8 ps 1.6 lc rgb lsColour \
+            title "leastSquares (CC-2-LS), structured", \
+        gradientTable using 2:(gradientValue("leftPerturbed", 9)) \
+            with linespoints lw 2 pt 9 ps 1.6 lc rgb lsColour dt (8, 5) \
+            title "leastSquares (CC-2-LS), perturbed"
     unset arrow
     unset label
     set autoscale y
