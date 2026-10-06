@@ -268,8 +268,8 @@ if (strlen(listS) > 0 && strlen(listP) > 0) {
     set output sprintf("%s/interiorOrders_structuredVsPerturbed.png", \
         figureDir)
     set title "Observed order of the interior L2 error against N" \
-        . " (pair N/2 to N),\nCC-2, CC-2-LS and VC-2, structured (solid) and" \
-        . " perturbed (dashed) left-diagonal triangles"
+        . " (pair N/2 to N),\nCC-2, CC-2-LS and VC-2 on left-diagonal" \
+        . " triangles,\nstructured (solid) and perturbed (dashed)"
     eval nTics
     set xrange [16/1.3:256*1.3]
     set yrange [0:3.5]
