@@ -1,0 +1,75 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/benchmarkRegression/makeReference
+#
+# Description
+#     Write reference.dat, the frozen regression values (CLAUDE.md section
+#     8, regression freeze), from the committed S5 results
+#     tutorials/advection1D/travellingSine/results with extractValues. The
+#     header records the commit of the results (their manifest.dat) and the
+#     last commit that changed the results directory. Run it only when the
+#     developer has accepted new S5 results; never edit reference.dat by
+#     hand.
+#
+#     Usage: ./makeReference
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+resultsDir=../../tutorials/advection1D/travellingSine/results
+
+if [ "$#" -ne 0 ]
+then
+    sed -n 's/^#     Usage: /Usage: /p' "$0"
+    exit 1
+fi
+
+if [ -n "$(git status --porcelain -- "$resultsDir")" ]
+then
+    echo "makeReference: $resultsDir has uncommitted changes; commit them" \
+        "first"
+    exit 1
+fi
+
+values=$(./extractValues "$resultsDir") || exit 1
+
+runCommit=$(awk '$1 == "commit" { print $2 }' "$resultsDir"/manifest.dat)
+runDirty=$(awk '$1 == "dirty" { print $2 }' "$resultsDir"/manifest.dat)
+resultsCommit=$(git log -1 --format=%H -- "$resultsDir")
+
+{
+    echo "# Frozen S5 regression values (tests/benchmarkRegression)"
+    echo "# Extracted by tests/benchmarkRegression/makeReference (do not edit)"
+    echo "# from tutorials/advection1D/travellingSine/results:"
+    echo "#   results made at commit $runCommit (dirty $runDirty)"
+    echo "#   results committed in $resultsCommit"
+    echo "#   $(awk '$1 == "openfoam" { print $2, $3 }' \
+        "$resultsDir"/manifest.dat), $(awk '$1 == "options" { print $2 }' \
+        "$resultsDir"/manifest.dat), $(awk '$1 == "cpu" { $1 = ""; print }' \
+        "$resultsDir"/manifest.dat | sed 's/^ //')"
+    echo "# Families: leftStructured (Allmesh N left) and leftPerturbed"
+    echo "# (Allmesh N left perturbed 12345). CC-2-LS-EX on leftPerturbed is a"
+    echo "# stability probe only and has no values."
+    echo "# Lines:"
+    echo "#   error <family> <scheme> <N> <quantity> <value>"
+    echo "#       N = 32 errors (relative tolerance 1e-4, default mode)"
+    echo "#   checksum <family> - <N> mesh <SHA-1 of the point list>"
+    echo "#       exact (N = 32 in the default mode, 128 and 256 in the full"
+    echo "#       mode)"
+    echo "#   order <family> <scheme> <N_coarse>-<N_fine> <quantity> <value>"
+    echo "#       finest-pair observed orders of summary.dat (+/-0.05, full"
+    echo "#       mode)"
+    echo "# Counts: $(echo "$values" | awk '{ n[$1]++ }
+        END { printf "%d error, %d checksum, %d order", n["error"],
+            n["checksum"], n["order"] }')"
+    echo "$values"
+} > reference.dat
+
+echo "Wrote reference.dat ($(echo "$values" | wc -l | tr -d ' ') values)"
+
+#------------------------------------------------------------------------------

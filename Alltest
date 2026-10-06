@@ -13,7 +13,8 @@
 #     is written to tests/<name>/log.Alltest; its standard input is
 #     /dev/null, so no test can wait for input. A PASS/FAIL summary is
 #     printed and the exit status is non-zero if any test fails. Nothing is
-#     built: run ./Allwmake first.
+#     built: run ./Allwmake first. With -full, tests/benchmarkRegression
+#     also runs its full mode (finest-pair orders, N = 128 and 256).
 #     Adapted from the solids4foam tutorials/Alltest script.
 #
 #------------------------------------------------------------------------------
@@ -31,6 +32,9 @@ function usage()
 usage: ${0##*/} [OPTION] [test1 test2 ...]
 
 options:
+  -full         Also run the full mode of tests/benchmarkRegression (the
+                N = 128 and 256 sweeps and the finest-pair orders; it sets
+                SPACETIME4FOAM_REGRESSION_FULL=1)
   -help         Print the usage
 
 Runs every tests/<name>/Allrun, or only the named tests, and prints a
@@ -65,6 +69,9 @@ do
     case "$1" in
     -h | -help)
         usage
+        ;;
+    -full)
+        export SPACETIME4FOAM_REGRESSION_FULL=1
         ;;
     -*)
         die "Unknown option: '$1'"

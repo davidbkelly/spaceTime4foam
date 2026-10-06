@@ -1,0 +1,266 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/benchmarkRegression/Allrun
+#
+# Description
+#     Regression test of the S5 benchmark against the frozen values in
+#     reference.dat (CLAUDE.md section 8, regression freeze). The sweep is
+#     the tutorial's own: tutorials/advection1D/travellingSine is copied to
+#     run/<mode>/ and its Allrun makes the meshes, runs every scheme with all
+#     its hard checks (convergence, columns, nUnknowns, corner-fallback
+#     faces, mesh checksums) and runs makeTables; extractValues then reads
+#     the new tables exactly as it read the committed ones.
+#
+#     Default mode: N = 32 on leftStructured (all 7 schemes) and
+#     leftPerturbed (all but CC-2-LS-EX, a probe only on perturbed meshes).
+#     Compares every frozen N = 32 error (214 values) with a relative
+#     tolerance of 1e-4, and the N = 32 mesh checksums exactly.
+#
+#     Full mode (-full, or SPACETIME4FOAM_REGRESSION_FULL=1, as set by
+#     ./Alltest -full): also N = 128 and 256 on both families, and compares
+#     the finest-pair (128 to 256) observed orders of summary.dat (156
+#     values) within +/-0.05 and the N = 128 and 256 mesh checksums
+#     exactly.
+#
+#     Tolerance and zero handling: an error passes if
+#     |actual - reference| <= 1e-4 |reference|. A reference below 1e-12 (the
+#     round-off level that makeTables also uses; none at present, the
+#     smallest is 7.5e-3) is compared absolutely: the actual value must also
+#     be below 1e-12. An order passes if |actual - reference| <= 0.05; a
+#     "nan" or "-" order must be the same string (none at present). Every
+#     actual value must be a finite number, and every reference entry must
+#     have an actual value.
+#
+#     Output: a table per (family, scheme) with the largest relative
+#     difference (orders: absolute), then every failing entry; the full
+#     comparison is in run/<mode>/comparison.dat. Exits with a non-zero
+#     status if a run or a comparison fails.
+#
+#     Usage: ./Allrun [-full]
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+full="${SPACETIME4FOAM_REGRESSION_FULL:-0}"
+while [ "$#" -gt 0 ]
+do
+    case "$1" in
+    -full)
+        full=1
+        ;;
+    *)
+        sed -n 's/^#     Usage: /Usage: /p' "$0"
+        exit 1
+        ;;
+    esac
+    shift
+done
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+perturbedSchemes="CC-1,CC-2,CC-2-LS,CC-2-EX,VC-1,VC-2"
+errorTolerance=1e-4
+roundOff=1e-12
+orderTolerance=0.05
+
+nFailed=0
+
+# sweep <mode> <smallest N> <largest N>
+# The tutorial sweep in run/<mode>, tables in run/<mode>/results
+function sweep()
+{
+    local mode="$1"
+    local dir="run/$mode"
+
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    cp -r "$tutorialDir"/0 "$tutorialDir"/constant "$tutorialDir"/system \
+        "$tutorialDir"/gmsh "$tutorialDir"/Allmesh "$tutorialDir"/Allrun \
+        "$tutorialDir"/makeTables "$tutorialDir"/plotConvergence.gp "$dir"/
+
+    echo "Sweep N = $2 ... $3 (log in $dir/log.Allrun*)"
+    if ! "$dir"/Allrun -minN "$2" -maxN "$3" -family structured -noFigures \
+        -results results > "$dir"/log.AllrunStructured 2>&1
+    then
+        echo "    FAIL: the structured sweep failed:"
+        tail -3 "$dir"/log.AllrunStructured | sed 's/^/        /'
+        return 1
+    fi
+    if ! "$dir"/Allrun -minN "$2" -maxN "$3" -family perturbed \
+        -schemes "$perturbedSchemes" -noFigures -results results \
+        > "$dir"/log.AllrunPerturbed 2>&1
+    then
+        echo "    FAIL: the perturbed sweep failed:"
+        tail -3 "$dir"/log.AllrunPerturbed | sed 's/^/        /'
+        return 1
+    fi
+}
+
+# compare <mode> <reference selection (awk condition)>
+# Compare the selected reference entries with the values extracted from
+# run/<mode>/results; write run/<mode>/comparison.dat and print the summary
+function compare()
+{
+    local mode="$1"
+    local select="$2"
+    local dir="run/$mode"
+
+    if ! ./extractValues "$dir"/results > "$dir"/actual.dat
+    then
+        echo "    FAIL: extractValues on $dir/results"
+        nFailed=$((nFailed + 1))
+        return
+    fi
+
+    awk '!/^#/ && ('"$select"')' reference.dat > "$dir"/reference.dat
+
+    # comparison.dat: kind family scheme N quantity reference actual
+    # difference status (difference: relative for errors, absolute for
+    # orders, 0/1 for checksums)
+    awk -v tolE="$errorTolerance" -v tolO="$orderTolerance" \
+        -v roundOff="$roundOff" '
+        function abs(x) { return (x < 0) ? -x : x }
+        BEGIN {
+            number = "^[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][-+]?[0-9]+)?$"
+        }
+        NR == FNR { actual[$1 " " $2 " " $3 " " $4 " " $5] = $6; next }
+        {
+            key = $1 " " $2 " " $3 " " $4 " " $5
+            ref = $6
+            if (!(key in actual))
+            {
+                print key, ref, "missing", "-", "FAIL"
+                next
+            }
+            a = actual[key]
+            if ($1 == "checksum")
+            {
+                print key, ref, a, (a == ref) ? 0 : 1, \
+                    (a == ref) ? "pass" : "FAIL"
+                next
+            }
+            if (ref !~ number || a !~ number)
+            {
+                ok = (a == ref)
+                print key, ref, a, "-", ok ? "pass" : "FAIL"
+                next
+            }
+            if ($1 == "order")
+            {
+                d = abs(a - ref)
+                printf "%s %s %s %.3f %s\n", key, ref, a, d, \
+                    (d <= tolO) ? "pass" : "FAIL"
+                next
+            }
+            if (abs(ref) < roundOff)
+            {
+                ok = (abs(a) < roundOff)
+                printf "%s %s %s - %s\n", key, ref, a, ok ? "pass" : "FAIL"
+                next
+            }
+            d = abs(a - ref)/abs(ref)
+            printf "%s %s %s %.2e %s\n", key, ref, a, d, \
+                (d <= tolE) ? "pass" : "FAIL"
+        }' "$dir"/actual.dat "$dir"/reference.dat > "$dir"/comparison.dat
+
+    # Summary per (kind, family, scheme): entries, largest difference and
+    # its quantity, failures
+    awk '
+        {
+            g = $1 " " $2 " " $3
+            if (!(g in n)) { order[++ng] = g }
+            n[g]++
+            if ($9 == "FAIL") { bad[g]++ }
+            if ($8 != "-" && (!(g in worst) || $8 + 0 > worst[g] + 0))
+            {
+                worst[g] = $8; where[g] = $4 " " $5
+            }
+        }
+        END {
+            printf "    %-8s %-15s %-10s %4s %10s  %-20s %s\n", "kind", \
+                "family", "scheme", "n", "maxDiff", "at", "failed"
+            for (i = 1; i <= ng; i++)
+            {
+                g = order[i]
+                split(g, p, " ")
+                printf "    %-8s %-15s %-10s %4d %10s  %-20s %d\n", p[1], \
+                    p[2], p[3], n[g], (g in worst) ? worst[g] : "-", \
+                    (g in where) ? where[g] : "-", bad[g] + 0
+            }
+        }' "$dir"/comparison.dat
+
+    local nEntries nBad
+    nEntries=$(wc -l < "$dir"/comparison.dat | tr -d ' ')
+    nBad=$(awk '$9 == "FAIL"' "$dir"/comparison.dat | wc -l | tr -d ' ')
+    if [ "$nEntries" -eq 0 ]
+    then
+        echo "    FAIL: no reference entries selected"
+        nFailed=$((nFailed + 1))
+    elif [ "$nBad" -gt 0 ]
+    then
+        echo "    FAIL: $nBad of $nEntries entries differ:"
+        echo "    kind family scheme N quantity reference actual diff status"
+        awk '$9 == "FAIL" { print "        " $0 }' "$dir"/comparison.dat
+        nFailed=$((nFailed + 1))
+    else
+        echo "    PASS: all $nEntries entries agree"
+    fi
+}
+
+for app in gmsh gmshToFoam spaceTime4Foam spaceTimeErrors \
+    perturbSpaceTimeMesh Test-gradientConsistency
+do
+    if ! command -v "$app" > /dev/null 2>&1
+    then
+        echo "$app not found: run ./Allwmake first (and install gmsh)"
+        exit 1
+    fi
+done
+
+sed -n 's/^#   results /Reference: results /p' reference.dat
+echo
+
+echo "Default mode: N = 32 errors (relative tolerance $errorTolerance) and" \
+    "mesh checksums"
+if sweep N32 32 32
+then
+    # shellcheck disable=SC2016
+    compare N32 '($1 == "error" && $4 == 32) || ($1 == "checksum" && $4 == 32)'
+else
+    nFailed=$((nFailed + 1))
+fi
+
+if [ "$full" = 1 ]
+then
+    echo
+    echo "Full mode: finest-pair orders (+/-$orderTolerance) and mesh" \
+        "checksums, N = 128 and 256"
+    if sweep finest 128 256
+    then
+        # shellcheck disable=SC2016
+        compare finest '$1 == "order" || ($1 == "checksum" && $4 >= 128)'
+    else
+        nFailed=$((nFailed + 1))
+    fi
+else
+    echo
+    echo "Full mode not run (./Allrun -full, or ./Alltest -full)"
+fi
+
+echo
+if [[ $nFailed -gt 0 ]]
+then
+    echo "benchmarkRegression: $nFailed comparison(s) FAILED"
+    exit 1
+fi
+
+echo "benchmarkRegression: all comparisons passed"
+
+#------------------------------------------------------------------------------

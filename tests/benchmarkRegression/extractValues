@@ -1,0 +1,121 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/benchmarkRegression/extractValues
+#
+# Description
+#     Print the regression values of an S5 results directory (the tables
+#     written by tutorials/advection1D/travellingSine/makeTables), one per
+#     line, for the main families leftStructured and leftPerturbed (seed
+#     12345):
+#       error <family> <scheme> <N> <quantity> <value>
+#           every error of the N = errorN (32) row of <scheme>_<family>.dat:
+#           L1/L2/Linf over all, interior and boundary unknowns and at
+#           t = T (primary value), for CCFV also the extrapolated and cell
+#           t = T values, for VCFV the maximum nodal error (columns 5-23,
+#           "-" entries left out);
+#       checksum <family> - <N> mesh <SHA-1>
+#           the mesh point-list checksum (column 29) for every N in
+#           checksumNs present; it must be the same in every scheme table;
+#       order <family> <scheme> <N_coarse>-<N_fine> <quantity> <value>
+#           the finest-pair observed orders of summary.dat (part 1), only
+#           for the pair finePair (128-256).
+#     Used by makeReference (the frozen reference.dat) and by Allrun (the
+#     values of a new run), so both are extracted in the same way.
+#     Exits with status 1 if the checksums of one mesh disagree.
+#
+#     Usage: ./extractValues <results directory>
+#
+#------------------------------------------------------------------------------
+
+if [ "$#" -ne 1 ] || [ ! -d "$1" ]
+then
+    sed -n 's/^#     Usage: /Usage: /p' "$0"
+    exit 1
+fi
+
+resultsDir="$1"
+
+families="leftStructured leftPerturbed"
+schemes="CC-1 CC-2 CC-2-LS CC-2-EX CC-2-LS-EX VC-1 VC-2"
+errorN=32
+checksumNs="32 128 256"
+finePair="128-256"
+
+# Quantity names of table columns 5-23
+names="L1_all L2_all Linf_all L1_int L2_int Linf_int"
+names="$names L1_bnd L2_bnd Linf_bnd L1_T L2_T Linf_T"
+names="$names L1_TExtrap L2_TExtrap Linf_TExtrap"
+names="$names L1_TCell L2_TCell Linf_TCell maxNodal"
+
+# Errors of the N = errorN rows
+for family in $families
+do
+    for scheme in $schemes
+    do
+        table="$resultsDir/${scheme}_$family.dat"
+        [ -f "$table" ] || continue
+        awk -v f="$family" -v s="$scheme" -v N="$errorN" -v names="$names" '
+            BEGIN { split(names, name, " ") }
+            /^#/ { next }
+            $1 == N {
+                for (k = 5; k <= 23; k++)
+                {
+                    if ($k != "-")
+                    {
+                        printf "error %s %s %s %s %s\n", f, s, N, \
+                            name[k - 4], $k
+                    }
+                }
+            }' "$table"
+    done
+done
+
+# Mesh checksums: one per (family, N), the same in every scheme table
+for family in $families
+do
+    for N in $checksumNs
+    do
+        sums=$(
+            for scheme in $schemes
+            do
+                table="$resultsDir/${scheme}_$family.dat"
+                [ -f "$table" ] || continue
+                awk -v N="$N" '/^#/ { next } $1 == N { print $29 }' "$table"
+            done | sort -u
+        )
+        [ -n "$sums" ] || continue
+        if [ "$(echo "$sums" | wc -l | tr -d ' ')" -ne 1 ]
+        then
+            echo "extractValues: $family N = $N: the scheme tables have" \
+                "different mesh checksums: $(echo "$sums" | tr "\n" " ")" >&2
+            exit 1
+        fi
+        echo "checksum $family - $N mesh $sums"
+    done
+done
+
+# Finest-pair orders (summary.dat, part 1: 17 columns, theory 1 or 2)
+if [ -f "$resultsDir"/summary.dat ]
+then
+    awk -v families=" $families " -v pair="$finePair" '
+        BEGIN {
+            split("L1_all L2_all Linf_all L1_int L2_int Linf_int" \
+                " L1_bnd L2_bnd Linf_bnd L1_T L2_T Linf_T", name, " ")
+        }
+        /^#/ { next }
+        NF == 17 && index(families, " " $1 " ") > 0 && $3 ~ /^[12]$/ \
+            && $4 "-" $5 == pair {
+            for (k = 6; k <= 17; k++)
+            {
+                printf "order %s %s %s-%s p_%s %s\n", $1, $2, $4, $5, \
+                    name[k - 5], $k
+            }
+        }' "$resultsDir"/summary.dat
+fi
+
+#------------------------------------------------------------------------------
