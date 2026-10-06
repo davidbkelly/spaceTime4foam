@@ -25,8 +25,14 @@
 #         value where the owner-neighbour line crosses the face, not at the
 #         face centroid, so the Gauss gradient is not consistent on skewed
 #         triangles).
-#     The last check documents the v2412 behaviour: it fails if a later
-#     version makes Gauss linear consistent on these meshes.
+#     Checks on all cells (the boundary-cell inconsistency of leastSquares,
+#     cited by the guide): v2412 leastSquares uses the normal-only boundary
+#     offset fvPatch::delta(), so in the boundary cells
+#       - leastSquares: all-cell e > 0.1 at both N on both families, and
+#         e(N = 64) >= 0.8 e(N = 16) on each family (no decrease).
+#     The perturbed Gauss linear and the all-cell leastSquares checks
+#     document the v2412 behaviour: they fail if a later version makes
+#     these gradients consistent on these meshes.
 #     Exits with a non-zero status if a run or a check fails.
 #
 #------------------------------------------------------------------------------
@@ -48,6 +54,7 @@ tutorialDir=../../tutorials/advection1D/travellingSine
 tolExact=1e-11
 minGauss=0.1
 minRatio=0.8
+minBoundary=0.1
 
 nFailed=0
 
@@ -67,6 +74,13 @@ function check()
 function interiorMax()
 {
     awk -v s="$2" '$1 == "gradientError" && $2 == s && $3 == "interior" {
+        print $5 }' "run/$1/log.Test-gradientConsistency"
+}
+
+# allMax <name> <scheme>: the all-cell max error of the run <name>
+function allMax()
+{
+    awk -v s="$2" '$1 == "gradientError" && $2 == s && $3 == "all" {
         print $5 }' "run/$1/log.Test-gradientConsistency"
 }
 
@@ -136,6 +150,30 @@ check "perturbed Gauss linear e(N = 64) >= $minRatio e(N = 16)" \
     "$(awk -v a="$e16" -v b="$e64" -v r="$minRatio" \
         'BEGIN { print (a != "" && b != "" && b >= r*a) ? 1 : 0 }')" \
     "e(16) = $e16, e(64) = $e64"
+
+# leastSquares over all cells: v2412 uses the normal-only boundary offset
+# fvPatch::delta() in the boundary cells, so the error there is O(1) and
+# does not decrease (the guide cites this boundary-cell inconsistency)
+echo
+echo "Checks (all cells, leastSquares, e = max |grad(u) - (1, 2, 0)|):"
+
+for name in structured_N16 structured_N64 perturbed_N16 perturbed_N64
+do
+    e=$(allMax "$name" leastSquares)
+    check "$name leastSquares all-cell e > $minBoundary (boundary cells)" \
+        "$(awk -v e="$e" -v t="$minBoundary" \
+            'BEGIN { print (e != "" && e > t) ? 1 : 0 }')" "e = $e"
+done
+
+for family in structured perturbed
+do
+    e16=$(allMax "${family}_N16" leastSquares)
+    e64=$(allMax "${family}_N64" leastSquares)
+    check "$family leastSquares all-cell e(N = 64) >= $minRatio e(N = 16)" \
+        "$(awk -v a="$e16" -v b="$e64" -v r="$minRatio" \
+            'BEGIN { print (a != "" && b != "" && b >= r*a) ? 1 : 0 }')" \
+        "e(16) = $e16, e(64) = $e64"
+done
 
 echo
 if [[ $nFailed -gt 0 ]]
