@@ -1,11 +1,11 @@
 # Manifest of the S5 benchmark results
 # travellingSine, a = 1, k = 1, convergence tolerance 1e-10
-# Provenance: spaceTime4foam commit 146475cd784068acb349a606a4d15dfa5c03fe94 (dirty 0)
+# Provenance: spaceTime4foam commit 66b3c777d4c90a9bac802e736a9e912f29832f77 (dirty 0)
 # OpenFOAM v2412 (darwin64ClangDPInt32Opt), arm64, Apple M4 Pro
-# Runs made 2026-10-06T10:47:58Z to 2026-10-06T10:53:11Z, tables made 2026-10-06T10:53:11Z
-# Total sweep wall time 278.8 s (meshes, runs and diagnostics, serial);
+# Runs made 2026-10-06T11:49:05Z to 2026-10-06T11:54:18Z, tables made 2026-10-06T11:54:19Z
+# Total sweep wall time 280.5 s (meshes, runs and diagnostics, serial);
 # see manifest.dat
-commit 146475cd784068acb349a606a4d15dfa5c03fe94
+commit 66b3c777d4c90a9bac802e736a9e912f29832f77
 dirty 0
 openfoam OpenFOAM v2412
 options darwin64ClangDPInt32Opt
@@ -14,22 +14,22 @@ gmsh 4.15.2-git
 gnuplot gnuplot 6.0 patchlevel 5
 machine arm64
 cpu Apple M4 Pro
-runsFirst 2026-10-06T10:47:58Z
-runsLast 2026-10-06T10:53:11Z
-tablesMade 2026-10-06T10:53:11Z
+runsFirst 2026-10-06T11:49:05Z
+runsLast 2026-10-06T11:54:18Z
+tablesMade 2026-10-06T11:54:19Z
 maxN 256
 # Wall time [s], serial: meshes (Allmesh) and runs (spaceTime4Foam
 # and spaceTimeErrors, as measured by Allrun, including the
 # CC-2-LS-EX stability probes), per family
 # family nMeshes meshTime nRuns runTime total
-wallTime leftStructured 6 5.5 42 41.4 46.9
-wallTime leftPerturbed 6 6.6 42 108.0 114.6
-wallTime rightStructured 4 2.2 28 17.9 20.1
-wallTime leftPerturbedSeed7 5 3.8 35 43.5 47.3
-wallTime leftPerturbedSeed3 5 3.9 35 44.3 48.2
+wallTime leftStructured 6 5.3 42 40.9 46.2
+wallTime leftPerturbed 6 6.6 42 107.0 113.6
+wallTime rightStructured 4 2.3 28 19.3 21.6
+wallTime leftPerturbedSeed7 5 3.8 35 43.7 47.5
+wallTime leftPerturbedSeed3 5 3.9 35 45.8 49.7
 # Gradient-consistency diagnostic: nRecords time
 wallTimeGradientConsistency 10 1.6
-wallTimeTotal 278.8
+wallTimeTotal 280.5
 # Tables (figures/*.png are drawn from them by plotConvergence.gp)
 file CC-1_leftPerturbed.dat
 file CC-1_leftPerturbedSeed3.dat

@@ -1,13 +1,13 @@
 # Seed study: perturbed left-diagonal meshes, N <= 128
 # travellingSine, a = 1, k = 1, convergence tolerance 1e-10
-# Provenance: spaceTime4foam commit 146475cd784068acb349a606a4d15dfa5c03fe94 (dirty 0)
+# Provenance: spaceTime4foam commit 66b3c777d4c90a9bac802e736a9e912f29832f77 (dirty 0)
 # OpenFOAM v2412 (darwin64ClangDPInt32Opt), arm64, Apple M4 Pro
-# Runs made 2026-10-06T10:47:58Z to 2026-10-06T10:53:11Z, tables made 2026-10-06T10:53:11Z
-# Total sweep wall time 278.8 s (meshes, runs and diagnostics, serial);
+# Runs made 2026-10-06T11:49:05Z to 2026-10-06T11:54:18Z, tables made 2026-10-06T11:54:19Z
+# Total sweep wall time 280.5 s (meshes, runs and diagnostics, serial);
 # see manifest.dat
 # Seeds: 12345 7 3 (seed 12345 is the leftPerturbed family)
 # Estimated extra wall time of the two extra seeds with all 7
-# schemes: 84.6 s (twice the measured mesh and run time of the leftPerturbed family for N <= 128);
+# schemes: 85.1 s (twice the measured mesh and run time of the leftPerturbed family for N <= 128);
 # limit 1800 s; option -seedSchemes auto; choice: all ( CC-1 CC-2 CC-2-LS CC-2-EX CC-2-LS-EX VC-1 VC-2 )
 # Spread over the seeds: min, max, mean and
 # relSpread = (max - min)/mean. Part 1: errors (table columns

@@ -1,9 +1,9 @@
 # VC-1: observed orders, perturbed left-diagonal triangles, seed 12345 (Allmesh N left perturbed 12345)
 # travellingSine, a = 1, k = 1, convergence tolerance 1e-10
-# Provenance: spaceTime4foam commit 146475cd784068acb349a606a4d15dfa5c03fe94 (dirty 0)
+# Provenance: spaceTime4foam commit 66b3c777d4c90a9bac802e736a9e912f29832f77 (dirty 0)
 # OpenFOAM v2412 (darwin64ClangDPInt32Opt), arm64, Apple M4 Pro
-# Runs made 2026-10-06T10:47:58Z to 2026-10-06T10:53:11Z, tables made 2026-10-06T10:53:11Z
-# Total sweep wall time 278.8 s (meshes, runs and diagnostics, serial);
+# Runs made 2026-10-06T11:49:05Z to 2026-10-06T11:54:18Z, tables made 2026-10-06T11:54:19Z
+# Total sweep wall time 280.5 s (meshes, runs and diagnostics, serial);
 # see manifest.dat
 # p = log(e_coarse/e_fine)/log(h_coarse/h_fine), h = 1/N; computed from VC-1_leftPerturbed.dat
 # - : no such error for this method; nan: an error below 1e-12 (zero to round-off)
