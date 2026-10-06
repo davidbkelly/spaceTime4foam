@@ -17,7 +17,14 @@
 #       summary.dat                   finest-pair orders against theory, and
 #                                     errors at matched unknown counts
 #       seeds.dat                     seed-study spread
+#       gradientConsistency.dat       gradient-consistency diagnostic
+#                                     (<rows>/<family>/gradient_N<N>.row)
 #       manifest.dat                  provenance and wall times
+#     Hard check: in every <scheme>_<family>.dat row and every norm triple
+#     (all, interior, boundary and the three t = T versions),
+#     L1 <= L2 <= Linf to a relative 1e-12. This holds because the weights
+#     of every norm are normalised (sum w = 1), so it catches swapped or
+#     misplaced columns. On a violation, makeTables exits with status 1.
 #     Records with N above <maxN> are left out. Every file starts with the
 #     same provenance lines.
 #
@@ -50,8 +57,6 @@ normNames="L1_all L2_all Linf_all L1_int L2_int Linf_int"
 normNames="$normNames L1_bnd L2_bnd Linf_bnd L1_T L2_T Linf_T"
 normNames="$normNames L1_TExtrap L2_TExtrap Linf_TExtrap"
 normNames="$normNames L1_TCell L2_TCell Linf_TCell"
-
-mkdir -p "$resultsDir" || exit 1
 
 
 # Helper functions
@@ -131,6 +136,17 @@ function probeRows()
     done | awk -v maxN="$maxN" '$1 <= maxN' | sort -n -k 1,1
 }
 
+# gradientRows <family>: the gradient-consistency records (Allrun
+# gradientConsistency), sorted by N, up to maxN
+function gradientRows()
+{
+    local f
+    for f in "$rowsDir/$1"/gradient_N*.row
+    do
+        [ -f "$f" ] && cat "$f"
+    done | awk -v maxN="$maxN" '$1 <= maxN' | sort -n -k 1,1
+}
+
 # rows <family> <scheme>: the run records, sorted by N, up to maxN
 function rows()
 {
@@ -153,7 +169,8 @@ function rows()
 
 
 # Provenance (of the records up to maxN): "elapsed commit dirty date" of
-# every run record (columns 30-33) and probe record (columns 18-21)
+# every run record (columns 30-33), probe record (columns 18-21) and
+# gradient-consistency record (columns 13-16)
 
 allRecords=$(
     for family in $allFamilies
@@ -164,6 +181,7 @@ allRecords=$(
             probeRows "$family" "$scheme" \
                 | awk '{print $18, $19, $20, $21}'
         done
+        gradientRows "$family" | awk '{print $13, $14, $15, $16}'
     done
 )
 if [ -z "$allRecords" ]
@@ -171,6 +189,9 @@ then
     echo "makeTables: no run records in $rowsDir"
     exit 1
 fi
+
+# Only now, with records to write, is the results directory made
+mkdir -p "$resultsDir" || exit 1
 
 commits=$(echo "$allRecords" | awk '{print $2}' | sort -u | tr '\n' ' ' \
     | sed 's/ $//')
@@ -210,12 +231,13 @@ provenance="\
 # Provenance: spaceTime4foam commit $commits (dirty $dirty)
 # OpenFOAM $WM_PROJECT_VERSION ($WM_OPTIONS), $machine, $cpu
 # Runs made $firstDate to $lastDate, tables made $madeDate
-# Total sweep wall time $totalTime s (meshes and runs, serial); see manifest.dat"
+# Total sweep wall time $totalTime s (meshes, runs and diagnostics, serial);
+# see manifest.dat"
 
-# header <title>: the first lines of every file
+# header <title words...>: the first lines of every file
 function header()
 {
-    echo "# $1"
+    echo "# $*"
     echo "# travellingSine, a = 1, k = 1, convergence tolerance 1e-10"
     echo "$provenance"
 }
@@ -305,6 +327,90 @@ do
 done
 
 
+# Consistency check of the tables just written: L1 <= L2 <= Linf
+
+for family in $allFamilies
+do
+    for scheme in $allSchemes
+    do
+        table="$resultsDir/${scheme}_$family.dat"
+        [ -f "$table" ] || continue
+        if ! awk -v file="$table" '
+            BEGIN {
+                split("all interior boundary T TExtrap TCell", name, " ")
+                bad = 0
+            }
+            /^#/ { next }
+            {
+                for (i = 1; i <= 6; i++)
+                {
+                    k = 2 + 3*i
+                    if ($k == "-" && $(k + 1) == "-" && $(k + 2) == "-")
+                    {
+                        continue
+                    }
+                    l1 = $k + 0; l2 = $(k + 1) + 0; li = $(k + 2) + 0
+                    if ($k == "-" || $(k + 1) == "-" || $(k + 2) == "-" \
+                        || l1 > l2*(1 + 1e-12) || l2 > li*(1 + 1e-12))
+                    {
+                        printf "makeTables: %s, row N = %s, subset %s" \
+                            " (columns %d-%d): L1 <= L2 <= Linf fails" \
+                            " (%s %s %s)\n", file, $1, name[i], k, k + 2, \
+                            $k, $(k + 1), $(k + 2)
+                        bad = 1
+                    }
+                }
+            }
+            END { exit bad }' "$table"
+        then
+            echo "makeTables: consistency check FAILED"
+            exit 1
+        fi
+    done
+done
+
+
+# gradientConsistency.dat
+
+gradientData=$(
+    for family in leftStructured leftPerturbed
+    do
+        gradientRows "$family" | awk -v f="$family" '{
+            printf "%s", f
+            for (i = 1; i <= 13; i++) { printf " %s", $i }
+            printf "\n"
+        }'
+    done
+)
+if [ -n "$gradientData" ]
+then
+    {
+        header "Gradient-consistency diagnostic: cell gradient of the" \
+            "linear field u = x + 2 t"
+        echo "# Test-gradientConsistency on the sweep meshes (same point-list" \
+            "checksums as the runs):"
+        echo "# u = x + 2 t in the cells and on every boundary face, exact" \
+            "gradient (1, 2, 0)."
+        echo "# e = |grad(u) - (1, 2, 0)| per cell; max and RMS" \
+            "(unweighted mean over the cells) over"
+        echo "# the interior cells (no face on a non-empty boundary patch)" \
+            "and over all cells."
+        echo "# GaussLinear: grad(u) Gauss linear (CC-2, CC-2-EX);" \
+            "leastSquares: grad(u) leastSquares"
+        echo "# (CC-2-LS, CC-2-LS-EX). Values near 1e-13 are round-off" \
+            "(zero to machine precision)."
+        echo "# Columns:"
+        echo "#  1 family  2 N  3 nCells  4 nInterior"
+        echo "#  5- 8 GaussLinear:  interior max, interior RMS, all max," \
+            "all RMS"
+        echo "#  9-12 leastSquares: interior max, interior RMS, all max," \
+            "all RMS"
+        echo "# 13 mesh point-list SHA-1  14 elapsed [s] (measured by Allrun)"
+        echo "$gradientData"
+    } > "$resultsDir"/gradientConsistency.dat
+fi
+
+
 # ccLsExPerturbedProbe.dat
 
 probeData=$(
@@ -345,7 +451,8 @@ then
         echo "# two written times (- for converged runs)."
         echo "# Columns:"
         echo "#  1 family  2 seed  3 N  4 outcome  5 iterations" \
-            "6 final residual  7 wall time [s]"
+            "6 final residual  7 wall time [s] (solver loop;"
+        echo "#    column 20 if the run crashed before writing it)"
         echo "#  8 max|u| at the last written time  9 last written time" \
             "(iteration)"
         echo "# 10 max|err| 11 x 12 t 13 region" \
@@ -596,6 +703,15 @@ fi
             END { printf "wallTime %s %d %.1f %d %.1f %.1f\n", f, n, t, \
                 nRuns, r, t + r }'
     done
+    gradientTime=$(
+        for family in $allFamilies
+        do
+            gradientRows "$family"
+        done | awk '{ n++; t += $13 }
+            END { printf "%d %.1f", n, t }'
+    )
+    echo "# Gradient-consistency diagnostic: nRecords time"
+    echo "wallTimeGradientConsistency $gradientTime"
     echo "wallTimeTotal $totalTime"
     echo "# Tables (figures/*.png are drawn from them by plotConvergence.gp)"
     (cd "$resultsDir" && ls ./*.dat) | sed 's|^\./||; s/^/file /'

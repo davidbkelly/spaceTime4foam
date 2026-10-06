@@ -1,0 +1,210 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/makeTables/Allrun
+#
+# Description
+#     Known-answer test of the S5 table script
+#     tutorials/advection1D/travellingSine/makeTables, on synthetic run
+#     records (no solver runs). The records follow the Allrun row format
+#     (33 columns, see makeTables) with errors that are exact power laws of
+#     h = 1/N, and every norm column has its own value:
+#       CC-1 on leftStructured, N = 8, 16, 32, nUnknowns 2 N^2:
+#         all       L1 L2 Linf = 0.1 h, 0.2 h, 0.4 h
+#         interior  0.05 h, 0.1 h, 0.2 h
+#         boundary  0.2 h, 0.4 h, 0.8 h
+#         t = T     primary 0.1 h^2, 0.2 h^2, 0.4 h^2; extrapolated and cell
+#                   values 0.3 and 0.6 times the primary values
+#       VC-2 on the three seed families (seeds 12345, 7 and 3), N = 8 and 16,
+#         L1_all at N = 16 = 0.01, 0.02 and 0.03 (L2 = 2 L1, Linf = 4 L1)
+#     Checks:
+#       - column placement: N = 16 row of CC-1_leftStructured.dat, columns
+#         5-22 against the values above;
+#       - observed orders (orders_CC-1_leftStructured.dat, pair 16 to 32):
+#         p_L1_all = 1.000 and p_L2_T = 2.000;
+#       - matched unknowns (summary.dat): L1_all of CC-1 at n = 1000 is
+#         0.1/sqrt(n/2) = 4.4721e-03 (exact for a power law);
+#       - seed spread (seeds.dat): VC-2 N = 16 L1_all min 0.01, max 0.03,
+#         mean 0.02, relSpread 1.000;
+#       - consistency check: with L1 > L2 in one record (a column swap),
+#         makeTables exits with a non-zero status and names the file, the
+#         row and the subset; without records it exits with a non-zero
+#         status and makes no results directory.
+#     Exits with a non-zero status if a check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+makeTables=../../tutorials/advection1D/travellingSine/makeTables
+runDir="$PWD/run"
+
+nFailed=0
+
+# check <description> <1 for pass> <details>
+function check()
+{
+    if [ "$2" = "1" ]
+    then
+        echo "    PASS: $1 ($3)"
+    else
+        echo "    FAIL: $1 ($3)"
+        nFailed=$((nFailed + 1))
+    fi
+}
+
+# same <a> <b>: 1 if the numbers a and b agree to a relative 1e-9
+function same()
+{
+    awk -v a="$1" -v b="$2" 'BEGIN {
+        d = a - b; if (d < 0) { d = -d }
+        s = (b < 0) ? -b : b
+        print (a != "" && d <= 1e-9*s) ? 1 : 0
+    }'
+}
+
+# ccRow <N>: a CC-1 record
+function ccRow()
+{
+    awk -v N="$1" 'BEGIN {
+        h = 1.0/N
+        printf "%d %.17g %.17g %d", N, h, h, 2*N*N
+        split("0.1 0.2 0.4 0.05 0.1 0.2 0.2 0.4 0.8", c, " ")
+        for (i = 1; i <= 9; i++) { printf " %.17g", c[i]*h }
+        for (f = 1; f <= 3; f++)
+        {
+            m = (f == 1) ? 1 : ((f == 2) ? 0.3 : 0.6)
+            printf " %.17g %.17g %.17g", m*0.1*h*h, m*0.2*h*h, m*0.4*h*h
+        }
+        printf " - 100 1 1e-11 0.5 - checksum%d 1.0 synthetic 0" \
+            " 2026-01-01T00:00:00Z\n", N
+    }'
+}
+
+# vcRow <N> <L1_all>: a VC-2 record (every triple L1, 2 L1, 4 L1)
+function vcRow()
+{
+    awk -v N="$1" -v e="$2" 'BEGIN {
+        h = 1.0/N
+        printf "%d %.17g %.17g %d", N, h, h, (N + 1)*(N + 1)
+        for (i = 1; i <= 4; i++) { printf " %.17g %.17g %.17g", e, 2*e, 4*e }
+        printf " - - - - - - %.17g 100 1 1e-11 0.5 - checksum%d 1.0" \
+            " synthetic 0 2026-01-01T00:00:00Z\n", 4*e, N
+    }'
+}
+
+rm -rf "$runDir"
+mkdir -p "$runDir"/rows/leftStructured
+for N in 8 16 32
+do
+    ccRow "$N" > "$runDir/rows/leftStructured/CC-1_N$N.row"
+    echo "$N checksum$N 0.1" > "$runDir/rows/leftStructured/mesh_N$N.row"
+done
+for family in leftPerturbed:0.01 leftPerturbedSeed7:0.02 \
+    leftPerturbedSeed3:0.03
+do
+    name="${family%%:*}"
+    e="${family##*:}"
+    mkdir -p "$runDir/rows/$name"
+    vcRow 8 "$(awk -v e="$e" 'BEGIN { printf "%.17g", 4*e }')" \
+        > "$runDir/rows/$name/VC-2_N8.row"
+    vcRow 16 "$e" > "$runDir/rows/$name/VC-2_N16.row"
+done
+{
+    echo "seeds 12345 7 3"
+    echo "maxN 16"
+    echo "estimate 1.0"
+    echo "limit 1800"
+    echo "option all"
+    echo "choice all"
+    echo "schemes VC-2"
+} > "$runDir"/rows/seedStudy
+
+echo "makeTables on the synthetic records:"
+if ! "$makeTables" "$runDir"/rows "$runDir"/results 32 \
+    > "$runDir"/log.makeTables 2>&1
+then
+    echo "makeTables failed (see $runDir/log.makeTables)"
+    exit 1
+fi
+
+# Column placement
+row=$(grep -v '^#' "$runDir"/results/CC-1_leftStructured.dat \
+    | awk '$1 == 16')
+expected=$(ccRow 16 | awk '{ for (k = 5; k <= 22; k++) printf "%s ", $k }')
+placed=1
+for k in $(seq 5 22)
+do
+    got=$(echo "$row" | awk -v k="$k" '{print $k}')
+    want=$(echo "$expected" | awk -v k="$((k - 4))" '{print $k}')
+    if [ "$(same "$got" "$want")" != 1 ]
+    then
+        placed=0
+        echo "    column $k: got $got, expected $want"
+    fi
+done
+check "CC-1 N = 16: columns 5-22 in place" "$placed" \
+    "L1/L2/Linf all $(echo "$row" | awk '{print $5, $6, $7}')"
+
+# Observed orders (pair 16 to 32): columns 3 (p_L1_all) and 13 (p_L2_T)
+orders=$(grep -v '^#' "$runDir"/results/orders_CC-1_leftStructured.dat \
+    | awk '$1 == 16 && $2 == 32')
+pL1=$(echo "$orders" | awk '{print $3}')
+pL2T=$(echo "$orders" | awk '{print $13}')
+check "observed order p_L1_all (16 to 32) = 1.000" \
+    "$([ "$pL1" = 1.000 ] && echo 1 || echo 0)" "p = $pL1"
+check "observed order p_L2_T (16 to 32) = 2.000" \
+    "$([ "$pL2T" = 2.000 ] && echo 1 || echo 0)" "p = $pL2T"
+
+# Matched unknowns: L1_all of CC-1 at n = 1000 (first matched count)
+matched=$(awk '$1 == "leftStructured" && $2 == "CC-1" && $3 == "L1_all" {
+    print $4 }' "$runDir"/results/summary.dat)
+check "matched unknowns: L1_all(n = 1000) = 4.4721e-03" \
+    "$([ "$matched" = 4.4721e-03 ] && echo 1 || echo 0)" "got $matched"
+
+# Seed spread: VC-2 N = 16 L1_all
+spread=$(awk '$1 == "VC-2" && $2 == 16 && $3 == "L1_all" {
+    print $4, $5, $6, $7 }' "$runDir"/results/seeds.dat)
+check "seed spread VC-2 N = 16 L1_all: 0.01 0.03 0.02 1.000" \
+    "$([ "$spread" = "1.0000e-02 3.0000e-02 2.0000e-02 1.000" ] \
+        && echo 1 || echo 0)" "min max mean relSpread: $spread"
+
+# Consistency check: swap L1_all and L2_all in one record
+echo
+echo "makeTables with L1_all and L2_all swapped in the N = 16 record:"
+cp -r "$runDir"/rows "$runDir"/rowsSwapped
+ccRow 16 | awk '{ t = $5; $5 = $6; $6 = t; print }' \
+    > "$runDir"/rowsSwapped/leftStructured/CC-1_N16.row
+"$makeTables" "$runDir"/rowsSwapped "$runDir"/resultsSwapped 32 \
+    > "$runDir"/log.makeTablesSwapped 2>&1
+status=$?
+message=$(grep "L1 <= L2 <= Linf fails" "$runDir"/log.makeTablesSwapped)
+echo "    $message"
+check "swapped columns: makeTables exits with a non-zero status" \
+    "$([ "$status" -ne 0 ] && echo 1 || echo 0)" "status $status"
+check "swapped columns: the message names the file, row and subset" \
+    "$(echo "$message" | grep -c 'CC-1_leftStructured.dat, row N = 16, subset all')" \
+    "$(echo "$message" | wc -l | tr -d ' ') message line(s)"
+
+# No records: non-zero status and no results directory
+mkdir -p "$runDir"/rowsEmpty
+"$makeTables" "$runDir"/rowsEmpty "$runDir"/resultsEmpty 32 \
+    > "$runDir"/log.makeTablesEmpty 2>&1
+status=$?
+check "no records: non-zero status and no results directory" \
+    "$([ "$status" -ne 0 ] && [ ! -e "$runDir"/resultsEmpty ] \
+        && echo 1 || echo 0)" "status $status"
+
+echo
+if [[ $nFailed -gt 0 ]]
+then
+    echo "makeTables: $nFailed check(s) FAILED"
+    exit 1
+fi
+
+echo "makeTables: all checks passed"
+
+#------------------------------------------------------------------------------
