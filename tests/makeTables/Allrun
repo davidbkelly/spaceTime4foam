@@ -32,8 +32,14 @@
 #         mean 0.02, relSpread 1.000;
 #       - consistency check: with L1 > L2 in one record (a column swap),
 #         makeTables exits with a non-zero status and names the file, the
-#         row and the subset; without records it exits with a non-zero
-#         status and makes no results directory.
+#         row and the subset; likewise with "- - -" in the primary t = T
+#         columns (14-16) of a cellCentred record ("- - -" is allowed only
+#         in columns 17-22 of vertexCentred rows) and with "nan" in
+#         column 5; without records it exits with a non-zero status and
+#         makes no results directory;
+#       - a failed check leaves an existing results directory unchanged
+#         (no new tables next to the old summary) and no temporary
+#         directory; a passing run replaces the old files.
 #     Exits with a non-zero status if a check fails.
 #
 #------------------------------------------------------------------------------
@@ -186,8 +192,84 @@ echo "    $message"
 check "swapped columns: makeTables exits with a non-zero status" \
     "$([ "$status" -ne 0 ] && echo 1 || echo 0)" "status $status"
 check "swapped columns: the message names the file, row and subset" \
-    "$(echo "$message" | grep -c 'CC-1_leftStructured.dat, row N = 16, subset all')" \
+    "$(echo "$message" \
+        | grep -c 'CC-1_leftStructured.dat, row N = 16, subset all')" \
     "$(echo "$message" | wc -l | tr -d ' ') message line(s)"
+
+# plantRow <name> <columns> <value> <expected message part>
+# Set the given columns of the CC-1 N = 16 record to the value and check
+# that makeTables fails and names the file, the row and the subset
+function plantRow()
+{
+    local name="$1"
+    local columns="$2"
+    local value="$3"
+    local expected="$4"
+    local log="$runDir/log.makeTables_$name"
+    local status message
+
+    echo
+    echo "makeTables with a planted fault ($name) in the N = 16 record:"
+    rm -rf "$runDir/rows_$name"
+    cp -r "$runDir"/rows "$runDir/rows_$name"
+    ccRow 16 | awk -v c="$columns" -v v="$value" '{
+        n = split(c, k, " ")
+        for (i = 1; i <= n; i++) { $k[i] = v }
+        print
+    }' > "$runDir/rows_$name"/leftStructured/CC-1_N16.row
+    "$makeTables" "$runDir/rows_$name" "$runDir/results_$name" 32 \
+        > "$log" 2>&1
+    status=$?
+    message=$(grep "CC-1_leftStructured.dat, row N = 16" "$log")
+    echo "    $message"
+    check "$name: makeTables exits with a non-zero status" \
+        "$([ "$status" -ne 0 ] && echo 1 || echo 0)" "status $status"
+    check "$name: the message names the file, row and subset" \
+        "$(echo "$message" | grep -c -- "$expected")" \
+        "$(echo "$message" | wc -l | tr -d ' ') message line(s)"
+}
+
+# "- - -" is legitimate only in columns 17-22 of vertexCentred rows: not
+# in the primary t = T columns (14-16) of a cellCentred row
+plantRow dashes "14 15 16" - \
+    "row N = 16, subset T (columns 14-16)"
+
+# nan compares false with everything, so it must be rejected as a value
+plantRow nan 5 nan \
+    "row N = 16, subset all (columns 5-7)"
+
+# A failed check changes nothing in the results directory: no new tables
+# next to the old summary, and no temporary directory left behind
+echo
+echo "makeTables (swapped columns) into a results directory with old files:"
+mkdir -p "$runDir"/resultsOld "$runDir"/tmp
+for f in summary.dat seeds.dat manifest.dat CC-1_leftStructured.dat
+do
+    echo "old $f" > "$runDir/resultsOld/$f"
+done
+before=$(cd "$runDir"/resultsOld && ls && cat ./*)
+TMPDIR="$runDir"/tmp "$makeTables" "$runDir"/rowsSwapped \
+    "$runDir"/resultsOld 32 > "$runDir"/log.makeTablesOld 2>&1
+status=$?
+after=$(cd "$runDir"/resultsOld && ls && cat ./*)
+nFiles=$(find "$runDir"/resultsOld -type f | wc -l | tr -d ' ')
+leftOver=$(find "$runDir"/tmp -mindepth 1 | wc -l | tr -d ' ')
+check "failed check: non-zero status, old results unchanged, no new files" \
+    "$([ "$status" -ne 0 ] && [ "$before" = "$after" ] \
+        && echo 1 || echo 0)" \
+    "status $status, $nFiles files"
+check "failed check: no temporary directory left" \
+    "$([ "$leftOver" = 0 ] && echo 1 || echo 0)" "$leftOver entries"
+
+# The same records without the fault replace the old files
+TMPDIR="$runDir"/tmp "$makeTables" "$runDir"/rows "$runDir"/resultsOld 32 \
+    > "$runDir"/log.makeTablesNew 2>&1
+status=$?
+leftOver=$(find "$runDir"/tmp -mindepth 1 | wc -l | tr -d ' ')
+check "passed check: the old summary is replaced, no temporary directory" \
+    "$([ "$status" -eq 0 ] && [ "$leftOver" = 0 ] \
+        && ! grep -q '^old' "$runDir"/resultsOld/summary.dat \
+        && echo 1 || echo 0)" "status $status, $leftOver entries"
 
 # No records: non-zero status and no results directory
 mkdir -p "$runDir"/rowsEmpty

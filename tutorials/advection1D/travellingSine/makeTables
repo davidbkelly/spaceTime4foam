@@ -24,7 +24,13 @@
 #     (all, interior, boundary and the three t = T versions),
 #     L1 <= L2 <= Linf to a relative 1e-12. This holds because the weights
 #     of every norm are normalised (sum w = 1), so it catches swapped or
-#     misplaced columns. On a violation, makeTables exits with status 1.
+#     misplaced columns. Every value must be a finite number (not "-",
+#     "nan" or "inf"); "- - -" is allowed only in the extrapolated and cell
+#     t = T columns (17-22) of vertexCentred rows (details at the check).
+#     On a violation, makeTables exits with status 1 and names the file,
+#     row and subset or column. Every file is written to a temporary
+#     directory and moved into the results directory only if the check
+#     passes, so a failed check changes nothing there.
 #     Records with N above <maxN> are left out. Every file starts with the
 #     same provenance lines.
 #
@@ -190,8 +196,12 @@ then
     exit 1
 fi
 
-# Only now, with records to write, is the results directory made
-mkdir -p "$resultsDir" || exit 1
+# Every file is written to a temporary directory first and moved into the
+# results directory only after the consistency check has passed, so a
+# failed check leaves the results directory as it was (no new tables next
+# to old ones). The temporary directory is removed on any exit
+outDir=$(mktemp -d "${TMPDIR:-/tmp}/makeTables.XXXXXX") || exit 1
+trap 'rm -rf "$outDir"' EXIT
 
 commits=$(echo "$allRecords" | awk '{print $2}' | sort -u | tr '\n' ' ' \
     | sed 's/ $//')
@@ -252,7 +262,7 @@ do
         data=$(rows "$family" "$scheme")
         [ -n "$data" ] || continue
 
-        table="$resultsDir/${scheme}_$family.dat"
+        table="$outDir/${scheme}_$family.dat"
         {
             header "$scheme: $(schemeDescription "$scheme")"
             echo "# Mesh family: $(familyDescription "$family")"
@@ -288,7 +298,7 @@ do
             }'
         } > "$table"
 
-        orders="$resultsDir/orders_${scheme}_$family.dat"
+        orders="$outDir/orders_${scheme}_$family.dat"
         {
             header "$scheme: observed orders, $(familyDescription "$family")"
             echo "# p = log(e_coarse/e_fine)/log(h_coarse/h_fine), h = 1/N;" \
@@ -327,43 +337,125 @@ do
 done
 
 
-# Consistency check of the tables just written: L1 <= L2 <= Linf
+# Consistency check of the tables just written. In every data row:
+#   - 30 columns;
+#   - columns 1-4 and 24-27 and 30 are finite numbers (a number pattern,
+#     so "-", "nan" and "inf" are rejected);
+#   - every norm triple (columns 5-22) is three finite non-negative
+#     numbers with L1 <= L2 <= Linf to a relative 1e-12, except that the
+#     extrapolated and cell t = T triples (columns 17-22) of a
+#     vertexCentred row must be "- - -";
+#   - column 23 (maximum nodal error) is a finite number for
+#     vertexCentred and "-" for cellCentred; column 28 (corner-fallback
+#     faces) is "-" or a whole number;
+#   - nUnknowns (column 4) is (N + 1)^2 for vertexCentred, 2 N^2 for
+#     cellCentred.
+# The normalised weights of every norm (sum w = 1) give L1 <= L2 <= Linf,
+# so the check catches swapped or misplaced columns
 
 for family in $allFamilies
 do
     for scheme in $allSchemes
     do
-        table="$resultsDir/${scheme}_$family.dat"
+        table="$outDir/${scheme}_$family.dat"
         [ -f "$table" ] || continue
-        if ! awk -v file="$table" '
+        case "$scheme" in
+        VC-*) method=vertexCentred ;;
+        *) method=cellCentred ;;
+        esac
+        if ! awk -v file="$resultsDir/${scheme}_$family.dat" \
+            -v method="$method" '
             BEGIN {
                 split("all interior boundary T TExtrap TCell", name, " ")
+                number = "^[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][-+]?[0-9]+)?$"
                 bad = 0
+            }
+            function report(what)
+            {
+                printf "makeTables: %s, row N = %s, %s\n", file, $1, what
+                bad = 1
             }
             /^#/ { next }
             {
+                if (NF != 30)
+                {
+                    report(sprintf("%d columns, expected 30", NF))
+                    next
+                }
+                split("1 2 3 4 24 25 26 27 30", plain, " ")
+                for (j = 1; j <= 9; j++)
+                {
+                    k = plain[j]
+                    if ($k !~ number)
+                    {
+                        report(sprintf("column %d: \"%s\" is not a finite" \
+                            " number", k, $k))
+                    }
+                }
+                if (method == "vertexCentred")
+                {
+                    unknowns = ($1 + 1)*($1 + 1)
+                }
+                else
+                {
+                    unknowns = 2*$1*$1
+                }
+                if ($4 != unknowns)
+                {
+                    report(sprintf("column 4: nUnknowns %s, expected %d" \
+                        " for %s", $4, unknowns, method))
+                }
                 for (i = 1; i <= 6; i++)
                 {
                     k = 2 + 3*i
-                    if ($k == "-" && $(k + 1) == "-" && $(k + 2) == "-")
+                    triple = $k " " $(k + 1) " " $(k + 2)
+                    if (method == "vertexCentred" && i >= 5)
                     {
+                        if (triple != "- - -")
+                        {
+                            report(sprintf("subset %s (columns %d-%d):" \
+                                " \"%s\", expected \"- - -\" for" \
+                                " vertexCentred", name[i], k, k + 2, triple))
+                        }
+                        continue
+                    }
+                    if ($k !~ number || $(k + 1) !~ number \
+                        || $(k + 2) !~ number \
+                        || $k < 0 || $(k + 1) < 0 || $(k + 2) < 0)
+                    {
+                        report(sprintf("subset %s (columns %d-%d): \"%s\"" \
+                            " is not three finite non-negative numbers", \
+                            name[i], k, k + 2, triple))
                         continue
                     }
                     l1 = $k + 0; l2 = $(k + 1) + 0; li = $(k + 2) + 0
-                    if ($k == "-" || $(k + 1) == "-" || $(k + 2) == "-" \
-                        || l1 > l2*(1 + 1e-12) || l2 > li*(1 + 1e-12))
+                    if (l1 > l2*(1 + 1e-12) || l2 > li*(1 + 1e-12))
                     {
-                        printf "makeTables: %s, row N = %s, subset %s" \
-                            " (columns %d-%d): L1 <= L2 <= Linf fails" \
-                            " (%s %s %s)\n", file, $1, name[i], k, k + 2, \
-                            $k, $(k + 1), $(k + 2)
-                        bad = 1
+                        report(sprintf("subset %s (columns %d-%d):" \
+                            " L1 <= L2 <= Linf fails (%s)", name[i], k, \
+                            k + 2, triple))
                     }
+                }
+                if (method == "vertexCentred" && ($23 !~ number || $23 < 0))
+                {
+                    report(sprintf("column 23: \"%s\" is not a finite" \
+                        " non-negative number", $23))
+                }
+                if (method == "cellCentred" && $23 != "-")
+                {
+                    report(sprintf("column 23: \"%s\", expected \"-\" for" \
+                        " cellCentred", $23))
+                }
+                if ($28 != "-" && $28 !~ /^[0-9]+$/)
+                {
+                    report(sprintf("column 28: \"%s\" is neither \"-\" nor" \
+                        " a whole number", $28))
                 }
             }
             END { exit bad }' "$table"
         then
-            echo "makeTables: consistency check FAILED"
+            echo "makeTables: consistency check FAILED (nothing written to" \
+                "$resultsDir)"
             exit 1
         fi
     done
@@ -407,7 +499,7 @@ then
             "all RMS"
         echo "# 13 mesh point-list SHA-1  14 elapsed [s] (measured by Allrun)"
         echo "$gradientData"
-    } > "$resultsDir"/gradientConsistency.dat
+    } > "$outDir"/gradientConsistency.dat
 fi
 
 
@@ -460,7 +552,7 @@ then
         echo "# 18 corner-fallback faces  19 mesh point-list SHA-1" \
             "20 elapsed [s] (measured by Allrun)"
         echo "$probeData"
-    } > "$resultsDir"/ccLsExPerturbedProbe.dat
+    } > "$outDir"/ccLsExPerturbedProbe.dat
 fi
 
 
@@ -485,7 +577,7 @@ fi
     do
         for scheme in $allSchemes
         do
-            orders="$resultsDir/orders_${scheme}_$family.dat"
+            orders="$outDir/orders_${scheme}_$family.dat"
             [ -f "$orders" ] || continue
             grep -v '^#' "$orders" | tail -1 | awk -v f="$family" \
                 -v s="$scheme" -v t="$(theory "$scheme")" '
@@ -508,7 +600,7 @@ fi
     do
         for scheme in $allSchemes
         do
-            table="$resultsDir/${scheme}_$family.dat"
+            table="$outDir/${scheme}_$family.dat"
             [ -f "$table" ] || continue
             for norm in L1_all:5 L2_all:6 Linf_all:7 L2_T:15
             do
@@ -542,7 +634,7 @@ fi
             done
         done
     done
-} > "$resultsDir"/summary.dat
+} > "$outDir"/summary.dat
 
 
 # seeds.dat
@@ -579,7 +671,7 @@ then
             files=""
             for family in $seedFamilies
             do
-                f="$resultsDir/${scheme}_$family.dat"
+                f="$outDir/${scheme}_$family.dat"
                 [ -f "$f" ] && files="$files $f"
             done
             # No table of this scheme (e.g. CC-2-LS-EX, probe only): awk
@@ -623,7 +715,7 @@ then
             files=""
             for family in $seedFamilies
             do
-                f="$resultsDir/orders_${scheme}_$family.dat"
+                f="$outDir/orders_${scheme}_$family.dat"
                 [ -f "$f" ] && files="$files $f"
             done
             # No table of this scheme (e.g. CC-2-LS-EX, probe only): awk
@@ -653,7 +745,7 @@ then
                     }
                 }' $files
         done
-    } > "$resultsDir"/seeds.dat
+    } > "$outDir"/seeds.dat
 fi
 
 
@@ -714,8 +806,13 @@ fi
     echo "wallTimeGradientConsistency $gradientTime"
     echo "wallTimeTotal $totalTime"
     echo "# Tables (figures/*.png are drawn from them by plotConvergence.gp)"
-    (cd "$resultsDir" && ls ./*.dat) | sed 's|^\./||; s/^/file /'
-} > "$resultsDir"/manifest.dat
+    (cd "$outDir" && ls ./*.dat) | sed 's|^\./||; s/^/file /'
+} > "$outDir"/manifest.dat
+
+# Only now, with every file written and checked, is the results directory
+# made and are the files moved into it
+mkdir -p "$resultsDir" || exit 1
+mv "$outDir"/*.dat "$resultsDir"/ || exit 1
 
 echo "Tables written to $resultsDir"
 
