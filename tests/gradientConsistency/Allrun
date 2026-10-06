@@ -1,0 +1,149 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# License
+#     This file is part of spaceTime4foam, licensed under GNU General Public
+#     License <http://www.gnu.org/licenses/>.
+#
+# Script
+#     tests/gradientConsistency/Allrun
+#
+# Description
+#     Gradient-consistency test (CLAUDE.md section 6, S5 finding): the cell
+#     gradient of the exactly linear field u = x + 2 t, exact on every
+#     boundary face, with Gauss linear and leastSquares
+#     (Test-gradientConsistency), on the tutorial Left meshes
+#       structured  Allmesh N left                   N = 16 and 64
+#       perturbed   Allmesh N left perturbed 12345   N = 16 and 64
+#     Checks on the interior cells (no face on a non-empty boundary patch),
+#     with e = max |grad(u) - (1, 2, 0)|:
+#       - leastSquares: e <= 1e-11 on both families (exact for linear
+#         fields);
+#       - Gauss linear, structured: e <= 1e-11;
+#       - Gauss linear, perturbed: e > 0.1 at both N, and
+#         e(N = 64) >= 0.8 e(N = 16), so the error does not decrease under
+#         refinement (OpenFOAM v2412's linear interpolation puts the face
+#         value where the owner-neighbour line crosses the face, not at the
+#         face centroid, so the Gauss gradient is not consistent on skewed
+#         triangles).
+#     The last check documents the v2412 behaviour: it fails if a later
+#     version makes Gauss linear consistent on these meshes.
+#     Exits with a non-zero status if a run or a check fails.
+#
+#------------------------------------------------------------------------------
+cd "${0%/*}" || exit  # Run from this directory
+
+# Source tutorial run functions (also sets DYLD_LIBRARY_PATH on Darwin)
+. "${WM_PROJECT_DIR:?}"/bin/tools/RunFunctions
+
+for app in Test-gradientConsistency gmsh perturbSpaceTimeMesh
+do
+    if ! command -v "$app" > /dev/null 2>&1
+    then
+        echo "$app not found: run ./Allwmake first (and install gmsh)"
+        exit 1
+    fi
+done
+
+tutorialDir=../../tutorials/advection1D/travellingSine
+tolExact=1e-11
+minGauss=0.1
+minRatio=0.8
+
+nFailed=0
+
+# check <description> <1 for pass> <details>
+function check()
+{
+    if [ "$2" = "1" ]
+    then
+        echo "    PASS: $1 ($3)"
+    else
+        echo "    FAIL: $1 ($3)"
+        nFailed=$((nFailed + 1))
+    fi
+}
+
+# interiorMax <name> <scheme>: the interior max error of the run <name>
+function interiorMax()
+{
+    awk -v s="$2" '$1 == "gradientError" && $2 == s && $3 == "interior" {
+        print $5 }' "run/$1/log.Test-gradientConsistency"
+}
+
+for name in structured_N16 structured_N64 perturbed_N16 perturbed_N64
+do
+    N="${name##*_N}"
+    caseDir="run/$name"
+    mkdir -p "$caseDir"
+    cp -r "$tutorialDir"/gmsh "$tutorialDir"/system "$tutorialDir"/Allmesh \
+        "$caseDir"/
+
+    case "$name" in
+    structured_*) meshArgs="$N left" ;;
+    perturbed_*) meshArgs="$N left perturbed 12345" ;;
+    esac
+
+    # shellcheck disable=SC2086
+    if ! "$caseDir"/Allmesh $meshArgs > "$caseDir"/log.Allmesh 2>&1
+    then
+        echo "Allmesh $meshArgs failed (see $caseDir/log.Allmesh)"
+        exit 1
+    fi
+
+    if ! Test-gradientConsistency -case "$caseDir" \
+        > "$caseDir"/log.Test-gradientConsistency 2>&1
+    then
+        echo "Test-gradientConsistency failed on $name (see $caseDir)"
+        exit 1
+    fi
+
+    echo "$name (Allmesh $meshArgs):"
+    awk '$1 == "gradientError" { printf "    %-12s %-8s nCells %6d" \
+        "  max %.4e  rms %.4e\n", $2, $3, $4, $5, $6 }' \
+        "$caseDir"/log.Test-gradientConsistency
+done
+
+echo
+echo "Checks (interior cells, e = max |grad(u) - (1, 2, 0)|):"
+
+for name in structured_N16 structured_N64 perturbed_N16 perturbed_N64
+do
+    e=$(interiorMax "$name" leastSquares)
+    check "$name leastSquares e <= $tolExact" \
+        "$(awk -v e="$e" -v t="$tolExact" \
+            'BEGIN { print (e != "" && e <= t) ? 1 : 0 }')" "e = $e"
+done
+
+for name in structured_N16 structured_N64
+do
+    e=$(interiorMax "$name" GaussLinear)
+    check "$name Gauss linear e <= $tolExact" \
+        "$(awk -v e="$e" -v t="$tolExact" \
+            'BEGIN { print (e != "" && e <= t) ? 1 : 0 }')" "e = $e"
+done
+
+for name in perturbed_N16 perturbed_N64
+do
+    e=$(interiorMax "$name" GaussLinear)
+    check "$name Gauss linear e > $minGauss (inconsistent)" \
+        "$(awk -v e="$e" -v t="$minGauss" \
+            'BEGIN { print (e != "" && e > t) ? 1 : 0 }')" "e = $e"
+done
+
+e16=$(interiorMax perturbed_N16 GaussLinear)
+e64=$(interiorMax perturbed_N64 GaussLinear)
+check "perturbed Gauss linear e(N = 64) >= $minRatio e(N = 16)" \
+    "$(awk -v a="$e16" -v b="$e64" -v r="$minRatio" \
+        'BEGIN { print (a != "" && b != "" && b >= r*a) ? 1 : 0 }')" \
+    "e(16) = $e16, e(64) = $e64"
+
+echo
+if [[ $nFailed -gt 0 ]]
+then
+    echo "gradientConsistency: $nFailed check(s) FAILED"
+    exit 1
+fi
+
+echo "gradientConsistency: all checks passed"
+
+#------------------------------------------------------------------------------
