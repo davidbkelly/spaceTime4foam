@@ -111,8 +111,10 @@ solves `fvm::div(phiST,u)`. Repeated solves provide deferred correction
 for `linearUpwind`. The `PBiCGStab`/`DILU` settings are in
 [`fvSolution`](../tutorials/advection1D/travellingSine/system/fvSolution).
 The CCFV stopping measure is the initial residual of the latest linear
-solve. `spaceTimeAnalyticalFixedValue` supplies the exact inflow face
-values. Before output, `cellCentred::writeFields()` refreshes the
+solve.
+
+The `spaceTimeAnalyticalFixedValue` condition supplies the exact inflow
+face values. Before output, `cellCentred::writeFields()` refreshes the
 solution-dependent outflow patch values from the final converged cells.
 
 The EX corner needs special care. On a Left mesh, the top-right cell has
@@ -386,8 +388,8 @@ Subsets are all, interior and boundary unknowns. At $t=T$, CCFV
 compares face values at `tEnd` face centres, weighted by face length;
 VCFV compares nodes on `tEnd`, weighted by half of each adjacent edge.
 Observed order between successive meshes is
-$p=\log(e_{\rm coarse}/e_{\rm fine})/
-\log(h_{\rm coarse}/h_{\rm fine})$. The tables below use the finest
+$p=\log(e_{\mathrm{coarse}}/e_{\mathrm{fine}})/
+\log(h_{\mathrm{coarse}}/h_{\mathrm{fine}})$. The tables below use the finest
 pair, $128\to256$, from
 [`summary.dat`](../tutorials/advection1D/travellingSine/results/summary.dat).
 The nominal theoretical order is 1 for CC-1/VC-1 and 2 for the other
@@ -413,7 +415,7 @@ schemes; boundary strips and mesh irregularity explain departures.
 | VC-2 | 2.079 | 2.035 | 2.167 |
 
 There is no accepted CC-2-LS-EX row on perturbed meshes. Its bounded
-stability probe, [`ccLsExPerturbedProbe.dat`](../tutorials/advection1D/travellingSine/results/ccLsExPerturbedProbe.dat),
+[stability probe](../tutorials/advection1D/travellingSine/results/ccLsExPerturbedProbe.dat)
 converged in seven of 16 seed/mesh runs; nine did not converge or ended
 with a floating-point failure. The growing error lay in an outflow strip,
 on `tEnd` (four runs) or `xRight` (five runs), not in the interior. Probe
