@@ -281,8 +281,9 @@ it is not a measured cost advantage of this repository.
 | Perturbing interior points; error evaluation | [`perturbSpaceTimeMesh.C`](../applications/utilities/perturbSpaceTimeMesh/perturbSpaceTimeMesh.C), [`spaceTimeErrors.C`](../applications/utilities/spaceTimeErrors/spaceTimeErrors.C) |
 | Mesh and benchmark sweep; tables and figures | [`Allmesh`](../tutorials/advection1D/travellingSine/Allmesh), [`Allrun`](../tutorials/advection1D/travellingSine/Allrun), [`makeTables`](../tutorials/advection1D/travellingSine/makeTables), [`plotConvergence.gp`](../tutorials/advection1D/travellingSine/plotConvergence.gp) |
 
-Each class's neighbouring `.H` declares its interface and `TypeName`;
-the `.C` defines behaviour and runtime registration. The model library's
+Each class's neighbouring `.H` declares its interface. Runtime-selectable
+classes also declare `TypeName` in `.H` and register in `.C`;
+`medianDualMesh` is a regular geometry class. The model library's
 [`Make/files.openfoam`](../src/spaceTime4FoamModels/Make/files.openfoam)
 and application `Make/files` entries compile these sources. The model
 and exact-solution `New` functions read the dictionary type names, so
